@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { voiceKey } from "../src/game/voice-lines";
 import { announcerLines } from "../tools/voice/announcer-lines";
 import { SFX } from "../tools/sfx/sfx-list";
+import { SPOKEN_LINES, UNIT_VOICES } from "../tools/voice/unit-lines";
+import { unitVoiceKey } from "../src/game/voices";
+import type { UnitKind } from "../src/sim/types";
 
 // (node:fs without Node's type declarations: the project only types the browser)
 const { existsSync, readFileSync }: { existsSync(path: string): boolean; readFileSync(path: string, enc: "utf8"): string } =
@@ -30,5 +33,15 @@ describe("recorded audio", () => {
     const m = manifest("sfx");
     expect(Object.keys(m).sort()).toEqual(Object.keys(SFX).sort());
     for (const v of Object.values(m)) for (const f of files(v)) expect(existsSync(`public/assets/sfx/${f}`), f).toBe(true);
+  });
+
+  it("has every unit class's recorded answers: two takes of select, move and attack", () => {
+    const m = manifest("units");
+    for (const k of Object.keys(UNIT_VOICES) as UnitKind[])
+      for (const l of SPOKEN_LINES) {
+        const fs = files(m[unitVoiceKey(k, l)] ?? []);
+        expect(fs.length, `${k} ${l}`).toBe(2);
+        for (const f of fs) expect(existsSync(`public/assets/units/${f}`), f).toBe(true);
+      }
   });
 });

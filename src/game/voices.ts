@@ -1,17 +1,29 @@
 /**
- * Unit chirp-voices. Every unit class has its own synthesized robot voice:
+ * Unit voices. When the player selects or orders units, they answer in
+ * their class's own recorded voice (an ElevenLabs library voice per class,
+ * two takes of each line: tools/voice/unit-lines.ts, public/assets/units).
+ *
+ * Everything else is a chirp. Every unit class has its own synthesized robot voice:
  * a carrier oscillator gliding through two formant band-passes (plus a dry
  * share, so thin voices still carry on phone speakers). A unit answers when
  * it is selected or ordered, reports when it rolls off the line, sparkles
  * when promoted and lets out a falling wail when it dies in view.
  *
- * Lines are short (< 400 ms) and strictly rate-limited so they charm rather
+ * The chirps also stand in for a recorded line until it has loaded (or if it
+ * fails). Chirps are short (< 400 ms); all lines are strictly rate-limited so they charm rather
  * than nag; they play on the voice bus, under the pause menu's Voice switch.
  * The plans (pitches, timings) and the gate are engine-free and tested
  * (tests/voices.test.ts); UnitVoices renders them with WebAudio.
  */
 import type { Faction, FxEvent, Unit, UnitKind, World } from "../sim/types";
 import { sfx, type AudioEngine } from "./audio";
+import { SampleBank } from "./samples";
+
+/** The units' recorded answers, filed under unitVoiceKey(kind, line). */
+export const unitLines = new SampleBank("assets/units/");
+
+/** The key a unit class's recorded line is filed under ("stinger:move"). */
+export const unitVoiceKey = (kind: UnitKind, line: VoiceLine): string => `${kind}:${line}`;
 
 export type VoiceLine = "select" | "move" | "attack" | "ready" | "rank" | "death";
 
@@ -35,7 +47,9 @@ export const CHIRP = {
   /** Output level into the voice bus (lines land near −30 dBFS RMS, under an intense score). */
   level: 0.22,
   /** At most this many chirps sounding at once. */
-  maxLive: 3
+  maxLive: 3,
+  /** Level of a recorded answer into the voice bus (under the announcer, over the chirps). */
+  spokenLevel: 0.45
 } as const;
 
 export interface VoiceSpec {
@@ -253,8 +267,15 @@ export class UnitVoices {
   /** Lines actually played, by kind of line (debug/measurement). */
   readonly stats: Record<VoiceLine, number> = { select: 0, move: 0, attack: 0, ready: 0, rank: 0, death: 0 };
 
+  /** The recorded answer playing now: a new one cuts it off, so the newest order is the one you hear. */
+  private spoken: AudioBufferSourceNode | null = null;
+
   constructor() {
-    sfx.onReady((e) => (this.e = e));
+    sfx.onReady((e) => {
+      this.e = e;
+      // about 1 MB in all: fetched in the background, two at a time
+      void unitLines.preload(e.ctx, undefined, 2);
+    });
   }
 
   /** Is the voice layer audible? (When it isn't, callers fall back to plain chimes.) */
@@ -275,6 +296,7 @@ export class UnitVoices {
     if (!this.active) return false;
     if (this.live >= CHIRP.maxLive || !this.gate.allow(line, performance.now())) return true;
     this.stats[line]++;
+    if (USER_LINES.has(line) && this.speak(kind, line)) return true;
     const at = this.e!.ctx.currentTime + 0.01;
     this.render(chirpPlan(kind, line, id), at, 1);
     if (echo) {
@@ -359,6 +381,31 @@ export class UnitVoices {
     }
     const g = groupVoices(crew);
     if (g) this.say(g.lead.kind, "ready", g.lead.id, g.echo);
+  }
+
+  /** Play the class's recorded answer, if it is loaded. */
+  private speak(kind: UnitKind, line: VoiceLine): boolean {
+    const buf = unitLines.ready(unitVoiceKey(kind, line));
+    if (!buf) return false;
+    const { ctx, voiceIn } = this.e!;
+    // (stopping fires its onended, which lets go of its gain)
+    try {
+      this.spoken?.stop();
+    } catch {
+      /* already over */
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = CHIRP.spokenLevel;
+    src.connect(g).connect(voiceIn);
+    src.onended = () => {
+      g.disconnect();
+      if (this.spoken === src) this.spoken = null;
+    };
+    this.spoken = src;
+    src.start(ctx.currentTime + 0.01);
+    return true;
   }
 
   // ------------------------------------------------------------ synthesis --
