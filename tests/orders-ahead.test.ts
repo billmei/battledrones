@@ -120,7 +120,7 @@ describe("a duel's Controller reads its own orders on their way as landed", () =
     c.drainCommands();
     expect(pickProducer(w, "trooper", c.selectedUnits, c.view())).toBeNull();
     c.tapWorld(25.5, 25.5, { kind: "ground" });
-    expect(c.drainCommands()).toEqual([{ type: "attackMove", faction: "blue", unitIds: [g.id], x: 25.5, y: 25.5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "move", faction: "blue", unitIds: [g.id], x: 25.5, y: 25.5 }]);
   });
 
   it("shows a rally point on its way", () => {

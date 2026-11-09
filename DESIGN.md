@@ -655,8 +655,8 @@ still win, and Troopers (−0.46) and Stingers (−0.24) now do too.
 - **Retaliation.** Idle units hit by something out of reach go after the
   attacker, and nearby idle allies join in (not a Goliath dug in or on a
   lift: its guns answer from where it is).
-- Auto-acquire targets in range; attack-move is the default command, with
-  a "Move only" chip for retreats.
+- Auto-acquire targets in range; a plain move is the default command, with
+  an "⚔ Attack" chip (the A key with a mouse) arming an attack-move.
 - **Menders are shot first.** Auto-targeting (units and turrets alike)
   reckons an enemy Mender 2.5 tiles nearer than it is, and a unit that can
   hit one drops whatever it was auto-targeting for a Mender that comes into
@@ -2285,11 +2285,12 @@ accidental browser gestures:
 | Tap | Own infantry squad, Condors selected | Board the nearest selected Condor with a seat |
 | Tap | Own walking Goliath, two empty Condors selected | Hook the two nearest on to lift it (the selection becomes the lift) |
 | Tap | Own building | Select it (production queue, sell, rally) |
-| Tap | Enemy / ground / scrap | With selection: attack / attack-move / harvest |
+| Tap | Enemy / ground / scrap | With selection: attack / move (attack-move with ⚔ Attack armed) / harvest |
 | Tap | Ground, building selected | Set rally point |
 | Tap | Ground, only an anchored Goliath selected | Set the rally point for the squads it trains (it stays dug in) |
 | Tap | Ground, a lift selected | Fly the Goliath there and hover |
 | Double-tap | Own unit | Select all on-screen units of that type |
+| Double-tap | Own building | Select every building of that kind (a rally point set then goes to all of them) |
 | Drag (one finger) | Anywhere | Pan (with momentum) |
 | Long-press then drag | Anywhere | Box-select (prefers combat units over harvesters) |
 | Long-press, released without dragging | Map, loaded Condors selected | Fly there and drop the squads (the rest of the selection heads there too); with a calldown armed, fire it there instead |
@@ -2300,6 +2301,15 @@ accidental browser gestures:
 | Tap | Map, while placing | Move the ghost there (no build yet) |
 | Tap / drag | The ghost | Build it / slide it |
 | Long-press / tap / double-tap | Squad chip 1–3 | Save the selection / select the squad / fly the camera there |
+
+With a mouse, the left button only selects: a click on an own unit or
+building selects it (Shift+click adds or removes a unit), a click on the
+ground or an enemy clears the selection, and a click while placing builds.
+Every order in the table above is the **right** button's (move, attack,
+harvest, board, rally point). **A** with army units selected arms an
+attack-move (crosshair cursor): the next left click on the ground
+attack-moves there, on an enemy attacks it; a right-click or Escape
+disarms it. Without a selection, A still pans the camera.
 
 Disambiguation: a touch is a *tap* if it moves < 8 px and lasts < 250 ms;
 movement beyond the slop radius before the long-press timer fires commits
@@ -2312,15 +2322,15 @@ uses an enlarged (≥ 24 CSS px) radius, and aircraft are tested where they
 are drawn (lifted above their shadows).
 
 Context **chips** above the build bar, after the three squad chips: Stop /
-Move only / deselect for units, plus **⇣ Unload N** while loaded Condors
+⚔ Attack / deselect for units, plus **⇣ Unload N** while loaded Condors
 are selected (**⇣ Set down** for a lift in the air), and with a Goliath
 selected **⚓ Anchor** (or "⚠ …", why it can't here), **⇡ Pack up**, or
 its progress while it digs in or packs up ("⚓ 40%" on a narrow phone)
 (Stop shrinks to ■ on narrow screens to make room, and there an Unload or
-anchor chip takes Move only's place; a selection of only Condors, lifts
-or anchored Goliaths has no Move only, since it has no fights to skip);
+anchor chip takes ⚔ Attack's place; a selection of only Condors, harvesters, lifts
+or anchored Goliaths has no ⚔ Attack, since it has no fights to pick);
 Sell (+refund) for buildings (producers
-show "Tap the map to set a rally point" in the selection panel instead of a
+show "Tap the map to set a rally point" ("Right-click…" with a mouse) in the selection panel instead of a
 chip); "Select army" and "💤 Idle N" when nothing is selected (both
 leave out harvesters and the unarmed Condor, which would outrun the army
 and park alone in the enemy base, and anchored Goliaths, which stay put);

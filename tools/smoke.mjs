@@ -190,8 +190,9 @@ if (sid) {
   await page.touchscreen.tap(ground.x, ground.y);
   await ff(2);
   const order = await world((id) => window.__bd.world.units.get(id)?.order.type, sid);
-  if (order !== "attackMove" && order !== "idle") fail(`ground tap gave order ${order}`);
-  if (order !== "attackMove") fail("ground tap did not issue attack-move");
+  // (a plain move by default: attack-move is the ⚔ Attack chip's, or A then click with a mouse)
+  if (order !== "move" && order !== "idle") fail(`ground tap gave order ${order}`);
+  if (order !== "move") fail("ground tap did not issue a move");
   await shot("selected");
 }
 
