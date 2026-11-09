@@ -2309,7 +2309,7 @@ Every order in the table above is the **right** button's (move, attack,
 harvest, board, rally point). **A** with army units selected arms an
 attack-move (crosshair cursor): the next left click on the ground
 attack-moves there, on an enemy attacks it; a right-click or Escape
-disarms it. Without a selection, A still pans the camera.
+disarms it.
 
 Disambiguation: a touch is a *tap* if it moves < 8 px and lasts < 250 ms;
 movement beyond the slop radius before the long-press timer fires commits
@@ -2343,7 +2343,7 @@ labels shorten ("Move", "Army") so everything stays on one row down to
 Left-click select (Shift+click adds or removes a unit), left-drag
 box-select (Shift+drag adds the box to the selection), right-click
 command, wheel zoom,
-middle-drag or arrows/WASD pan, +/− zoom, P or Space pause, Q select army,
+middle-drag or arrow keys pan (W/A/S/D are left free for hotkeys), +/− zoom, P or Space pause, A attack-move, Q select army,
 Delete sell, Esc cancel/deselect, `.` game speed, J jump to the action,
 C cinematic camera (AI vs AI),
 1–3 select a squad (twice quickly: fly there), Ctrl/Cmd/Shift+1–3 save
