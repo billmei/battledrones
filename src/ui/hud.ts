@@ -190,6 +190,9 @@ const GOLIATH_STRIP: { k: GoliathWeapon; short: string }[] = [
 ];
 
 /** A Goliath's state for the selection panel: walking, anchoring (with progress), anchored, packing up, or on a lift. */
+/** Is the main pointer a mouse (or trackpad), where orders are right-clicks? */
+const finePointer = (): boolean => typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+
 function goliathMode(u: Unit): string {
   const g = u.goliath!;
   if (g.lift) return g.lift.phase === "hooking" ? "Condors hooking on…" : "⇡ On a lift";
@@ -702,14 +705,17 @@ export function createHud(api: HudApi): Hud {
         const st = BUILDINGS[b.kind];
         // rebuilt only when the queue itself changes: HP and progress tick in
         // place below, so a tap on a queue button (cancel) isn't lost to a rebuild
-        key = `b${b.id}:${b.queue.map((x) => x.kind).join(",")}`;
+        const many = ctrl.selectedBuildingIds().length;
+        key = `b${b.id}x${many}:${b.queue.map((x) => x.kind).join(",")}`;
         live = { hp: `${Math.ceil(b.hp)} / ${st.hp}`, head: headShare(b.queue) };
         // producers say how to set a rally point here (it used to be a chip; the row needs the room);
         // an outpost (built in a Goliath's ring) that it doesn't count as base
         const rally = isProducer(b.kind);
         const note = b.outpost
           ? "Outpost: doesn't extend build range"
-          : rally && !ctrl.spectator ? "Tap the map to set a rally point" : st.role;
+          : rally && !ctrl.spectator
+            ? `${many > 1 ? `${many} selected · ` : ""}${finePointer() ? "Right-click" : "Tap"} the map to set a rally point`
+            : st.role;
         html = `<img class="pi" src="${icon(b.kind, b.faction)}" alt=""/><div class="pt"><b>${st.name}${b.outpost ? ' <span class="outpost">· Outpost</span>' : ""}</b>
           <span class="hp">${Math.ceil(b.hp)} / ${st.hp}</span>
           ${b.queue.length ? queueHtml(b.id, b.queue, b.faction) : `<span class="hint">${note}</span>`}</div>`;
@@ -1158,19 +1164,13 @@ export function createHud(api: HudApi): Hud {
       if (unload)
         chips.push({ id: "unload", label: aboard > 0 ? `⇣ Unload ${aboard}` : "⇣ Set down", cls: "unload", on: () => ctrl.unloadSelected() });
       if (anchor) chips.push(anchor);
-      // (unarmed Condors, lifts and anchored Goliaths have no fights to skip: Move only would
-      // change nothing; on a phone the Unload or anchor chip takes its place in a mixed
-      // selection, so the row stays one row. A sound duel: as the orders on their way leave them)
-      const lifting = ctrl.liftMembers();
-      const ahead = ctrl.ahead();
-      const marchers = [...ctrl.selectedUnits].some((id) => {
-        const u = w.units.get(id);
-        return !!u && !isTransport(u.kind) && !lifting.has(id) && !isRooted(ahead.unit(u));
-      });
-      if (marchers && (!narrow || (!unload && !anchor) || ctrl.forceMove))
+      // ⚔ Attack arms an attack-move (the A key with a mouse): the next order on the ground fights its
+      // way there. (Unarmed Condors, harvesters, lifts and anchored Goliaths have no fights to pick; on a
+      // phone the Unload or anchor chip takes its place in a mixed selection, so the row stays one row.)
+      if (ctrl.canAttackMove() && (!narrow || (!unload && !anchor) || ctrl.attackArmed))
         chips.push({
-          id: "move", label: narrow ? "➜ Move" : "➜ Move only", active: ctrl.forceMove,
-          on: () => (ctrl.forceMove = !ctrl.forceMove)
+          id: "attack", label: narrow ? "⚔ Atk" : "⚔ Attack (A)", active: ctrl.attackArmed,
+          on: () => (ctrl.attackArmed = !ctrl.attackArmed)
         });
       chips.push({ id: "clear", label: "✕", on: () => ctrl.clearSelection() });
     } else if (ctrl.selectedBuilding !== null && !ctrl.spectator) {
@@ -1562,7 +1562,7 @@ export const HELP_HTML = `
   <h3>Career, Daily Op and mutators</h3><p>Wins, Last Stand waves and medals earn XP toward ten ranks; each map and difficulty has three stars (win, win under 8:00 — 12:00 on the Archipelago — and win without losing a building). The <b>Daily Op</b> is one seeded match a day, the same for everyone, and keeps a win streak. <b>Mutators</b> twist a skirmish's rules for both sides (no stars). Tap your rank on the menu for medals and records.</p>
   <h3>Economy</h3><p>Harvesters mine scrap piles and glowing crystals (worth more) and haul them to your HQ, a Depot or an anchored Goliath. More harvesters, more scrap. Destroyed units leave glinting <b>wrecks</b> worth 30% of their cost (a Last Stand wave's only 5%) for a minute: roll any ground unit over one to salvage it.</p>
   <h3>Building</h3><p>Open <b>Base</b> and tap a structure to construct it. When it's ready, tap it again: a ghost appears on a free spot near your base. Tap the map (or drag the ghost) to move it, then tap the ghost or <b>✓ Place</b> to build. With a mouse, just click the spot. Build buttons marked ⚔ counter enemies you've seen; a tab marked <b>idle</b> has a factory doing nothing.</p>
-  <h3>Army</h3><p>Tap a unit to select it, drag-hold (long-press) to box-select, double-tap to grab all of that type on screen. With a mouse, Shift+click adds a unit to the selection or takes it out. Tap the ground to attack-move, tap an enemy to attack. <b>Move only</b> retreats without stopping to fight. <b>💤 Idle</b> grabs units with no orders.</p>
+  <h3>Army</h3><p>Tap a unit to select it, drag-hold (long-press) to box-select, double-tap to grab all of that type on screen. With a mouse, Shift+click adds a unit to the selection or takes it out. Tap the ground to move there, tap an enemy to attack. <b>⚔ Attack</b> makes the next move an attack-move that fights everything on the way. With a mouse, left click only selects: right-click orders (move, attack, rally point), and A then left click on the ground attack-moves. Double-click a building to select every one of its kind and give them one rally point. <b>💤 Idle</b> grabs units with no orders.</p>
   <h3>Squads</h3><p>Hold a squad chip (<b>1</b>, <b>2</b>, <b>3</b>) to save the selected units into it. Tap it to select them again, double-tap to fly the camera there. It flashes red when a member is hit. Keys: 1–3 select, Ctrl+1–3 (or Shift+1–3) save.</p>
   <h3>Infantry</h3><p>You start every battle with a <b>Trooper Squad</b> by your HQ. The <b>Assembly Bay</b> trains more: <b>Troopers</b> (cheap rifles that hit air too), <b>Rocket Squads</b> (kill Mastodons and Hornets) and, with a Tech Lab, <b>Sniper Teams</b> (delete other infantry, and stay hidden in woods unless they fire or you come within ${INF.concealRadius} tiles). A squad is one unit of several robots: they fall as it takes damage, and it shoots weaker with each one lost. Squads walk through woods and rough ground at full speed, take half damage in woods and capture Uplinks twice as fast, but Mastodons crush them.</p>
   <h3>Condor</h3><p>The Airpad's dropship carries two squads over water, rock and anything else. Select squads and tap the Condor (or select the Condor and tap a squad) to load them; then <b>long-press</b> the map to fly there and drop them, or tap <b>⇣ Unload</b> (key U) to drop them where it is. Shot down over land, its squads bail out hurt; over water or rock they go down with it.</p>

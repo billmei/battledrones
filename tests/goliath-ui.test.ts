@@ -57,7 +57,7 @@ describe("Goliath orders from taps", () => {
     c.tapWorld(25.5, 20.5, { kind: "ground" });
     expect(c.drainCommands()).toEqual([
       { type: "move", faction: "blue", unitIds: [harv.id], x: 25.5, y: 20.5 },
-      { type: "attackMove", faction: "blue", unitIds: [tank.id], x: 25.5, y: 20.5 }
+      { type: "move", faction: "blue", unitIds: [tank.id], x: 25.5, y: 20.5 }
     ]);
     expect(c.lastFeedback?.kind).toBe("move");
     expect(c.tip).toMatch(/stays put/);
@@ -72,7 +72,7 @@ describe("Goliath orders from taps", () => {
     expect(isRooted(g)).toBe(false);
     c.selectUnits([g.id]);
     c.tapWorld(25.5, 20.5, { kind: "ground" });
-    expect(c.drainCommands()).toEqual([{ type: "attackMove", faction: "blue", unitIds: [g.id], x: 25.5, y: 20.5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "move", faction: "blue", unitIds: [g.id], x: 25.5, y: 20.5 }]);
   });
 
   it("⚔ Select army leaves anchored Goliaths at their posts, and 💤 Idle never lists a busy one", () => {
@@ -182,12 +182,12 @@ describe("the two-Condor lift from taps", () => {
     c.tapWorld(10.5, 30.5, { kind: "ground" });
     expect(c.drainCommands()).toEqual([
       { type: "move", faction: "blue", unitIds: [g.id], x: 10.5, y: 30.5 },
-      { type: "attackMove", faction: "blue", unitIds: [tank.id], x: 10.5, y: 30.5 }
+      { type: "move", faction: "blue", unitIds: [tank.id], x: 10.5, y: 30.5 }
     ]);
     expect(c.dropAt(12.5, 28.5)).toBe(true);
     expect(c.drainCommands()).toEqual([
       { type: "unload", faction: "blue", unitIds: [g.id], x: 12.5, y: 28.5 },
-      { type: "attackMove", faction: "blue", unitIds: [tank.id], x: 12.5, y: 28.5 }
+      { type: "move", faction: "blue", unitIds: [tank.id], x: 12.5, y: 28.5 }
     ]);
     expect(c.lastFeedback?.kind).toBe("drop");
     expect(c.unloadSelected()).toBe(true);
