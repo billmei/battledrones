@@ -176,3 +176,37 @@ describe("Menders are shot first", () => {
     expect(flak.order).toMatchObject({ type: "attack", targetId: wasp.id });
   });
 });
+
+describe("Mender orders: a plain move comes before repairs", () => {
+  /** A Mender at (5.5, 10.5) beside a hurt Stinger, both blue, and a far-off goal. */
+  const setup = () => {
+    const w = createWorld(40, 24);
+    const mender = spawnUnit(w, "mender", "blue", 5.5, 10.5);
+    const hurt = spawnUnit(w, "stinger", "blue", 6.5, 10.5);
+    hurt.hp = UNITS.stinger.hp / 2;
+    return { w, mender, hurt };
+  };
+
+  it("idle, it stays and repairs", () => {
+    const { w, mender, hurt } = setup();
+    runTicks(w, TICK_RATE);
+    expect(hurt.hp).toBeGreaterThan(UNITS.stinger.hp / 2);
+    expect(Math.abs(mender.x - 5.5)).toBeLessThan(0.5);
+  });
+
+  it("told to move, it flies off at once instead of finishing the repair", () => {
+    const { w, mender } = setup();
+    runTicks(w, 2); // repairing
+    step(w, [{ type: "move", faction: "blue", unitIds: [mender.id], x: 35.5, y: 10.5 }]);
+    runTicks(w, TICK_RATE * 2);
+    expect(mender.x).toBeGreaterThan(5.5 + UNITS.mender.speed * 1.5);
+  });
+
+  it("attack-moving, it stops to repair the closest hurt unit on the way", () => {
+    const { w, mender, hurt } = setup();
+    step(w, [{ type: "attackMove", faction: "blue", unitIds: [mender.id], x: 35.5, y: 10.5 }]);
+    runTicks(w, TICK_RATE * 2);
+    expect(mender.x).toBeLessThan(5.5 + UNITS.mender.range + 0.5);
+    expect(hurt.hp).toBeGreaterThan(UNITS.stinger.hp / 2);
+  });
+});

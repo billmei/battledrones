@@ -398,7 +398,7 @@ them, at what it cost).
 | **Wasp** | Airpad | Air | Ground | Rocket strike drone |
 | **Raptor** | Airpad | Air | Air | Interceptor |
 | **Hornet** ⚗ | Airpad | Air | Ground | Heavy bomber: splash vs ground and bases |
-| **Mender** | Airpad | Air | — | Repair drone: heals units and buildings |
+| **Mender** | Airpad | Air | — | Repair drone: heals units and buildings (idle or attack-moving it goes to the closest repair; a plain move keeps flying, healing only what it passes) |
 | **Trooper Squad** | Assembly Bay | Foot | Both | Cheap rifle robots; half damage vs air; best in woods |
 | **Rocket Squad** | Assembly Bay | Foot | Both | Anti-armour rockets: kills Mastodons and Hornets, weak vs infantry |
 | **Sniper Team** ⚗ | Assembly Bay | Foot | Ground | Long-range marksmen: deletes infantry, useless vs vehicles; hides in woods |
