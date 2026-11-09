@@ -555,41 +555,40 @@ button {
   border: 1px solid var(--line);
   box-shadow: 0 -6px 22px rgba(0, 0, 0, 0.45);
 }
-.tabs {
+/* one scrolling list: Base, Vehicles, Infantry and Aircraft sections, each a header over its buttons */
+.blist {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
 }
-.tab {
-  position: relative;
-  flex: 1;
-  min-height: 32px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--dim);
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 0.4px;
+.bsec {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   gap: 5px;
 }
-.tab.on {
-  color: #fff;
-  background: #1a2b45;
-  border-color: var(--line-hi);
+/* the header stays put while its section's buttons scroll under it */
+.bsh {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  padding: 1px 2px;
+  background: rgb(12, 17, 27);
+  color: var(--dim);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
 }
-/* a ≥ 40 px tall touch target without making the bar any taller */
-.tab::after {
-  content: "";
-  position: absolute;
-  inset: -6px 0 -3px;
+.bsh .ti {
+  font-size: 13px;
 }
-.tab .tbadge {
-  position: absolute;
-  top: -5px;
-  right: 4px;
+.bsh .tbadge {
+  margin-left: auto;
   background: var(--blue);
   color: #fff;
   border-radius: 8px;
@@ -598,10 +597,8 @@ button {
   height: 16px;
   line-height: 16px;
   padding: 0 4px;
-}
-.tab .tbadge.hot {
-  background: #37d67a;
-  animation: pulse 0.9s infinite alternate;
+  text-align: center;
+  letter-spacing: 0;
 }
 @keyframes pulse {
   to {
@@ -610,6 +607,7 @@ button {
 }
 .grid {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .bb {
@@ -819,8 +817,11 @@ button {
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(8px, env(safe-area-inset-right));
   }
-  .grid {
-    overflow-x: auto;
+  /* about one section tall, with the next header peeking in: scroll down for the rest */
+  .blist {
+    max-height: 132px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     scrollbar-width: none;
   }
   .minimap-wrap {
@@ -915,14 +916,10 @@ button {
     overflow-y: auto;
     scrollbar-width: none;
   }
-  .tab .tl2 {
-    display: none;
-  }
-  .tab {
-    font-size: 16px;
-  }
-  .tab::after {
-    inset: -6px 0;
+  /* the sidebar itself scrolls: headers stick to its top edge */
+  .bsh {
+    top: calc(-1 * max(6px, env(safe-area-inset-top)));
+    margin: 0 -2px;
   }
   .grid {
     display: grid;
@@ -968,9 +965,6 @@ button {
   .bb .ic {
     width: 38px;
     height: 38px;
-  }
-  .tab {
-    min-height: 28px;
   }
 }
 
@@ -2298,25 +2292,16 @@ button {
   margin-bottom: 4px;
 }
 
-/* tab notes: "idle" factory, ⚔ counters on another tab */
-.tab .tnotes {
-  position: absolute;
-  /* straddles the tab's top edge, clear of its label */
-  top: -10px;
-  left: 3px;
-  display: flex;
-  gap: 2px;
-  pointer-events: none;
-}
-.tab .tidle {
-  height: 16px;
+/* section notes: "idle" factory */
+.bsh .tidle {
+  height: 15px;
   padding: 0 5px;
   border-radius: 8px;
   background: #ffb84a;
   color: #1a1205;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 900;
-  line-height: 16px;
+  line-height: 15px;
   letter-spacing: 0.4px;
   text-transform: uppercase;
   box-shadow: 0 0 6px rgba(255, 184, 74, 0.6);
@@ -2325,45 +2310,9 @@ button {
 @keyframes tabIdle {
   to { box-shadow: 0 0 12px rgba(255, 184, 74, 0.95); }
 }
-.tab .tctr {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #ffb84a;
-  color: #1a1205;
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 16px;
-  text-align: center;
-}
-/* landscape tabs are icon-only and narrow: ⚔ on the top-left corner, "idle" under the tab */
-@media (orientation: landscape) {
-  .tab .tnotes {
-    inset: 0;
-  }
-  .tab .tidle {
-    position: absolute;
-    left: 50%;
-    bottom: -7px;
-    transform: translateX(-50%);
-    height: 13px;
-    padding: 0 4px;
-    font-size: 8px;
-    line-height: 13px;
-  }
-  .tab .tctr {
-    position: absolute;
-    left: -4px;
-    top: -5px;
-    width: 15px;
-    height: 15px;
-    font-size: 10px;
-    line-height: 15px;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .bb.counter.fresh,
-  .tab .tidle,
+  .bsh .tidle,
   .sq.hurt {
     animation-duration: 1ms;
     animation-iteration-count: 1;
@@ -4925,17 +4874,9 @@ button {
 .chip.unload:active {
   background: #e8bd4f;
 }
-/* four tabs on a 360–420 px portrait phone: icon and label a little tighter */
+/* a 360–420 px portrait phone: buttons a little tighter */
 @media (orientation: portrait) and (max-width: 420px) {
-  .tabs {
-    gap: 4px;
-  }
-  .tab {
-    gap: 3px;
-    font-size: 12px;
-    letter-spacing: 0.1px;
-  }
-  /* the Base tab's nine buttons (Gantry last) fit a 390 px row: 9 × 38 + 8 × 3 ≤ 374 */
+  /* the Base section's nine buttons (Gantry last) fit a 390 px row: 9 × 38 + 8 × 3 ≤ 374 */
   .grid {
     gap: 3px;
   }
@@ -4967,7 +4908,7 @@ button {
     font-size: 9px;
   }
 }
-/* landscape phones under 400 px tall: the Base tab's nine buttons (five rows) fit the sidebar unscrolled */
+/* landscape phones under 400 px tall: smaller buttons, so more of the list shows at once */
 @media (orientation: landscape) and (max-height: 400px) {
   .grid {
     gap: 4px;
