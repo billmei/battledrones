@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { DIFFICULTY, createAiState, tickAi, type AiState } from "../sim/ai/commander";
 import { BUILDINGS, ECONOMY, GOLIATH, TICK_RATE, UNITS } from "../sim/balance";
-import { canPlaceBuilding, nearestReachableResource } from "../sim/economy";
+import { buildProgress, canPlaceBuilding, nearestReachableResource } from "../sim/economy";
 import { isExplored, isVisible, tickFog } from "../sim/fog";
 import { unitSeenBy } from "../sim/infantry";
 import { createMapWorld, mapById } from "../sim/maps";
@@ -1461,6 +1461,11 @@ export class GameScene {
         const s = rig.project(p.x, p.y, p.top + 0.1);
         if (!s.behind) this.juice.healthBar(ctx, b.id, s.x - bw / 2, s.y - 11, bw, ratio, b.faction === PLAYER, 5);
       }
+      // construction progress under our foundations (one waiting its turn shows an empty meter)
+      if (b.build !== undefined && b.faction === PLAYER) {
+        const s = rig.project(p.x, b.ty + size, p.h - 0.4);
+        if (!s.behind) this.juice.meter(ctx, s.x - bw / 2, s.y - 8, bw, 4, buildProgress(b), METER[b.faction]);
+      }
       // production progress under our factories (and under an enemy Gantry: its Goliath is public)
       const head = b.queue[0];
       if (head && (b.faction === PLAYER || BUILDINGS[b.kind].alwaysVisible)) {
@@ -1598,7 +1603,7 @@ export class GameScene {
     let shift = false;
     this.gest = new GestureRecognizer({
       onTap: (sx, sy, type) => {
-        if (this.place.tap(sx, sy, type)) return; // placing: move the ghost / build
+        if (this.place.tap(sx, sy, type, shift)) return; // placing: move the ghost / build (Shift: and lay another)
         const p = this.worldAt(sx, sy);
         if (this.powerUi?.tapWorld(p.x, p.y)) return; // an armed calldown fires here
         // a mouse's left click only selects (orders are the right button's, or A then click);

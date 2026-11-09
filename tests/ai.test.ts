@@ -10,7 +10,7 @@ import { nearestScrapTile } from "../src/sim/economy";
 import { tickFog } from "../src/sim/fog";
 import { createMapWorld } from "../src/sim/maps";
 import { step } from "../src/sim/sim";
-import { buildingCenter, hqOf, setTerrain, spawnBuilding, spawnUnit } from "../src/sim/world";
+import { buildingCenter, hqOf, removeBuilding, setTerrain, spawnBuilding, spawnUnit } from "../src/sim/world";
 import { Terrain, type FxEvent, type World } from "../src/sim/types";
 
 function runWithAi(w: World, seconds: number, state = createAiState()) {
@@ -590,5 +590,35 @@ describe("AI Menders", () => {
     const ai = createAiState("balanced", "normal", 1);
     const cmds = tickAi(w, "red", ai);
     expect(cmds.some((c) => c.type === "attack" && c.targetId === mender.id)).toBe(true);
+  });
+});
+
+describe("the AI's foundations", () => {
+  it("lays one foundation at a time, builds nothing at an unfinished factory, and calls off one whose prerequisite was lost", () => {
+    const w = createSkirmishWorld();
+    const ai = createAiState("balanced", "normal", 1);
+    w.factions.red.scrap = 5000;
+    let laid = 0;
+    for (let i = 0; i < 60 * TICK_RATE; i++) {
+      const cmds = tickAi(w, "red", ai);
+      for (const c of cmds) {
+        if (c.type === "placeBuilding") laid++;
+        // never production at a foundation
+        if (c.type === "produce") expect(w.buildings.get(c.buildingId)?.build).toBeUndefined();
+      }
+      step(w, cmds);
+      const going = [...w.buildings.values()].filter((b) => b.faction === "red" && b.build !== undefined);
+      expect(going.length).toBeLessThanOrEqual(1);
+    }
+    expect(laid).toBeGreaterThan(1);
+    // a Tech Lab foundation whose every prerequisite is gone: refunded
+    for (const b of [...w.buildings.values()])
+      if (b.faction === "red" && BUILDINGS["tech-lab"].requires!.includes(b.kind)) removeBuilding(w, b);
+    const hq = hqOf(w, "red")!;
+    const lab = spawnBuilding(w, "tech-lab", "red", hq.tx - 4, hq.ty - 3);
+    lab.build = 50;
+    ai.lastDecisionTick = -1e9;
+    const cmds = tickAi(w, "red", ai);
+    expect(cmds).toContainEqual({ type: "sell", faction: "red", buildingId: lab.id });
   });
 });

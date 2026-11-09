@@ -84,10 +84,10 @@ export class PlacementView {
     });
   }
 
-  /** Placing, the building is ready, and the ghost has a spot. */
+  /** Placing, and the ghost has a spot. */
   private get active(): boolean {
     const c = this.h.ctrl;
-    return !!c.placing && !!c.placeAt && !!this.h.world.factions[PLAYER].pending?.ready;
+    return !!c.placing && !!c.placeAt;
   }
 
   private worldAt(sx: number, sy: number): { x: number; y: number } {
@@ -118,13 +118,12 @@ export class PlacementView {
     if (s && !this.h.inView(s.tx + size / 2, s.ty + size / 2)) this.h.glideTo(s.tx + size / 2, s.ty + size / 2);
     this.pulse = 0;
     if (this.lastType !== "mouse")
-      this.h.hint("place", "Tap the map (or drag) to move the ghost, then tap it or ✓ Place to build.");
+      this.h.hint("place", "Tap the map (or drag) to move the ghost, then tap it or ✓ Place to lay the foundation.");
   }
 
   /** Every frame, before drawing. */
   update(delta: number): void {
-    const ready = !!this.h.world.factions[PLAYER].pending?.ready;
-    const kind = ready ? this.h.ctrl.placing : null;
+    const kind = this.h.ctrl.placing;
     if (kind !== this.kind) {
       this.kind = kind;
       this.drag = null;
@@ -209,14 +208,14 @@ export class PlacementView {
     if (this.drag?.id === id) this.drag = null;
   }
 
-  /** A tap (or the 2nd tap of a double-tap) while placing; true = handled. */
-  tap(sx: number, sy: number, type?: GesturePointer["pointerType"]): boolean {
+  /** A tap (or the 2nd tap of a double-tap) while placing; true = handled. `more` (Shift on a click): stay placing. */
+  tap(sx: number, sy: number, type?: GesturePointer["pointerType"], more = false): boolean {
     if (!this.active) return false;
     const t = type ?? this.lastType;
     const at = this.tileUnder(this.worldAt(sx, sy));
     if (t === "mouse") {
       this.h.ctrl.placeAt = at;
-      this.h.ctrl.commitPlacement();
+      this.h.ctrl.commitPlacement(more);
     } else if (this.onGhost(sx, sy)) this.h.ctrl.commitPlacement();
     else {
       this.h.ctrl.movePlacement(at.tx, at.ty);

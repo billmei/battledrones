@@ -437,25 +437,21 @@ export function createHud(api: HudApi): Hud {
   for (const kind of BUILDABLE)
     makeButton(`b:${kind}`, kind, BUILDINGS[kind].cost, SHORT[kind] ?? BUILDINGS[kind].name, () => {
       // (a sound duel: orders still on their way count as applied, controller.ts BuildView)
+      // a tap picks the spot first: the foundation is laid (and paid for) there, and goes up in turn
       const view = api.ctrl.view();
-      const p = view.pending;
-      if (p?.kind === kind && p.ready) {
-        api.ctrl.placing = kind;
-        api.ctrl.clearSelection();
-        sfx.play("click");
-        return;
-      }
-      if (p) {
-        toast(p.kind === kind ? "Under construction…" : "Already constructing a building");
+      if (api.ctrl.placing === kind) {
+        api.ctrl.placing = null; // (tapped again: put the ghost away)
         return;
       }
       const why = buildingBlocker(w, PLAYER, kind);
       if (why) return toast(why);
+      if (view.queue.some((p) => p.id === null && p.kind === kind) && BUILDINGS[kind].unique) return toast("One per side");
       if (view.scrap < BUILDINGS[kind].cost) {
         radioCue("no-scrap");
         return toast("Not enough scrap");
       }
-      api.ctrl.enqueue({ type: "startBuilding", faction: PLAYER, building: kind });
+      api.ctrl.placing = kind;
+      api.ctrl.clearSelection();
       sfx.play("click");
     }, () => showCard(kind));
 
@@ -532,6 +528,7 @@ export function createHud(api: HudApi): Hud {
     const queuedHere = isUnit
       ? queuesOf(w, PLAYER, kind as UnitKind).reduce((n, p) => n + p.queue.filter((q) => q.kind === kind).length + view.extra(p.id, kind as UnitKind), 0)
       : 0;
+    const laidHere = isUnit ? 0 : view.queue.filter((p) => p.kind === kind).length;
     cardEl.innerHTML = `
       <div class="ch"><img src="${icon(kind)}" alt="" /><div><b>${s.name}</b><p>${s.role}</p></div>
       <button class="x" id="card-x">✕</button></div>
@@ -539,7 +536,7 @@ export function createHud(api: HudApi): Hud {
       ${m ? `<p class="good">▲ ${m.strong}</p><p class="bad">▼ ${m.weak}</p>` : ""}
       ${note ? `<p class="ctr">⚔ ${note}</p>` : ""}
       ${queuedHere > 0 ? `<button class="cta small" id="card-cancel">Cancel one (${queuedHere} queued)</button>` : ""}
-      ${!isUnit && view.pending?.kind === kind ? `<button class="cta small warn" id="card-cancel-b">Cancel construction</button>` : ""}`;
+      ${laidHere > 0 ? `<button class="cta small warn" id="card-cancel-b">Cancel one (${laidHere} in the build queue)</button>` : ""}`;
     cardEl.hidden = false;
     layout.refresh(true); // (portrait: kept under the band at its real height)
     cardEl.querySelector("#card-x")!.addEventListener("click", () => (cardEl.hidden = true));
@@ -550,8 +547,9 @@ export function createHud(api: HudApi): Hud {
       cardEl.hidden = true;
     });
     cardEl.querySelector("#card-cancel-b")?.addEventListener("click", () => {
-      api.ctrl.enqueue({ type: "cancelBuilding", faction: PLAYER });
-      api.ctrl.placing = null;
+      // the last one laid of this kind (in the world: one still on its way can't be called back)
+      const last = api.ctrl.view().queue.filter((p) => p.kind === kind && p.id !== null).pop();
+      if (last) api.ctrl.enqueue({ type: "sell", faction: PLAYER, buildingId: last.id! });
       cardEl.hidden = true;
     });
   }
@@ -942,7 +940,6 @@ export function createHud(api: HudApi): Hud {
   }
 
   const pings: { x: number; y: number; t: number; kind?: "hit" | "inbound" }[] = [];
-  let lastReady: BuildingKind | null = null;
   /** The anchored Goliaths selected last frame (ids), to open the Infantry tab when one turns up. */
   let lastTrainers = "";
 
@@ -1151,6 +1148,9 @@ export function createHud(api: HudApi): Hud {
         id: "place", label: why ? `⚠ ${why}` : `✓ Place ${BUILDINGS[ctrl.placing].name}`,
         cls: why ? "place bad" : "place go", on: () => ctrl.commitPlacement()
       });
+      // the foundations already waiting their turn
+      const waiting = view.queue.length;
+      if (waiting > 0 && !narrow) chips.push({ id: "queue", label: `🏗 ${waiting} queued`, cls: "info", on: () => {} });
       chips.push({ id: "cancel", label: "✕", cls: "warn", on: () => (ctrl.placing = null) });
     } else if (ctrl.selectedUnits.size > 0 && !ctrl.spectator) {
       // loaded Condors: drop the squads where they are (a long-press on the map drops them there);
@@ -1175,7 +1175,10 @@ export function createHud(api: HudApi): Hud {
       chips.push({ id: "clear", label: "✕", on: () => ctrl.clearSelection() });
     } else if (ctrl.selectedBuilding !== null && !ctrl.spectator) {
       const b = w.buildings.get(ctrl.selectedBuilding);
-      if (b && b.kind !== "hq") {
+      if (b && b.build !== undefined) {
+        // a foundation: called off, paid back in full
+        chips.push({ id: "sell", label: `✕ Cancel +${BUILDINGS[b.kind].cost}`, cls: "warn", on: () => ctrl.sellSelected() });
+      } else if (b && b.kind !== "hq") {
         const refund = Math.floor(BUILDINGS[b.kind].cost * ECONOMY.sellRefund * (b.hp / BUILDINGS[b.kind].hp));
         chips.push({ id: "sell", label: `$ Sell +${refund}`, cls: "warn", on: () => ctrl.sellSelected() });
       }
@@ -1207,38 +1210,23 @@ export function createHud(api: HudApi): Hud {
       lastTrainers = trainers;
     }
 
-    // building buttons
-    const p = view.pending;
-    if (p?.ready && lastReady !== p.kind && !ctrl.spectator) {
-      lastReady = p.kind;
-      sfx.play("ready");
-      toast(`${BUILDINGS[p.kind].name} ready — tap here to place it`, () => {
-        // (not once it has been placed: in a sound duel the placement may still be on its way)
-        if (ctrl.view().pending?.ready) ctrl.placing = p.kind;
-      }, "good");
-      if (tab !== "build") {
-        tab = "build";
-        renderGrid();
-      }
-    }
-    if (!p) lastReady = null;
+    // building buttons: each kind's foundations in the build queue, and the one going up
+    const laid = view.queue;
     for (const kind of BUILDABLE) {
       const el = buttons.get(`b:${kind}`)!;
-      const { prog, lock } = parts.get(`b:${kind}`)!;
-      const pendingThis = p?.kind === kind;
+      const { prog, lock, badge } = parts.get(`b:${kind}`)!;
+      const mine = laid.filter((p) => p.kind === kind);
+      const head = mine.find((p) => p.active);
       const blocked = buildingBlocker(w, PLAYER, kind);
       el.classList.toggle("locked", !!blocked);
-      el.classList.toggle("poor", !pendingThis && view.scrap < BUILDINGS[kind].cost);
-      el.classList.toggle("busy", !!p && !pendingThis);
-      el.classList.toggle("ready", !!(pendingThis && p.ready));
+      el.classList.toggle("poor", view.scrap < BUILDINGS[kind].cost);
       el.classList.toggle("placing", ctrl.placing === kind);
       lock.hidden = !blocked;
       markBanned(lock, w, kind); // mutators: ⛔ instead of 🔒
-      if (pendingThis && !p.ready) {
-        prog.hidden = false;
-        const total = BUILDINGS[kind].buildTime * TICK_RATE;
-        prog.style.height = `${(1 - p.remaining / total) * 100}%`;
-      } else prog.hidden = true;
+      badge.hidden = mine.length === 0;
+      if (badge.textContent !== String(mine.length)) badge.textContent = String(mine.length);
+      prog.hidden = !head;
+      if (head) prog.style.height = `${head.progress * 100}%`;
     }
     // unit buttons
     const tabQ: Record<Tab, number> = { build: 0, ground: 0, infantry: 0, air: 0 };
@@ -1274,11 +1262,10 @@ export function createHud(api: HudApi): Hud {
     }
     for (const el of tabsEl.children) {
       const t = (el as HTMLElement).dataset.tab as Tab;
-      const n = t === "build" ? (p ? 1 : 0) : tabQ[t];
+      const n = t === "build" ? laid.length : tabQ[t];
       const badge = el.querySelector<HTMLElement>(".tbadge")!;
       badge.hidden = n === 0 || t === tab;
-      badge.textContent = t === "build" ? (p?.ready ? "!" : "•") : String(n);
-      badge.classList.toggle("hot", t === "build" && !!p?.ready);
+      badge.textContent = String(n);
     }
 
     const now = performance.now();
@@ -1561,7 +1548,7 @@ export const HELP_HTML = `
   <h3>Ops</h3><p>A short campaign of handcrafted missions with a twist — hold a bridge, deliver scrap under air raids, decapitate a base with a strike group, fight with no income. Each has a goal pill under the clock (tap it for the objectives) and three stars: complete it, plus two harder conditions. The first three are open; every op you complete opens the next.</p>
   <h3>Career, Daily Op and mutators</h3><p>Wins, Last Stand waves and medals earn XP toward ten ranks; each map and difficulty has three stars (win, win under 8:00 — 12:00 on the Archipelago — and win without losing a building). The <b>Daily Op</b> is one seeded match a day, the same for everyone, and keeps a win streak. <b>Mutators</b> twist a skirmish's rules for both sides (no stars). Tap your rank on the menu for medals and records.</p>
   <h3>Economy</h3><p>Harvesters mine scrap piles and glowing crystals (worth more) and haul them to your HQ, a Depot or an anchored Goliath. More harvesters, more scrap. Destroyed units leave glinting <b>wrecks</b> worth 30% of their cost (a Last Stand wave's only 5%) for a minute: roll any ground unit over one to salvage it.</p>
-  <h3>Building</h3><p>Open <b>Base</b> and tap a structure to construct it. When it's ready, tap it again: a ghost appears on a free spot near your base. Tap the map (or drag the ghost) to move it, then tap the ghost or <b>✓ Place</b> to build. With a mouse, just click the spot. Build buttons marked ⚔ counter enemies you've seen; a tab marked <b>idle</b> has a factory doing nothing.</p>
+  <h3>Building</h3><p>Open <b>Base</b> and tap a structure: a ghost appears on a free spot near your base. Tap the map (or drag the ghost) to move it, then tap the ghost or <b>✓ Place</b> to lay its foundation. With a mouse, just click the spot (hold Shift to lay several). You pay when you lay it, and it's built right there. Lay as many as you can pay for: they go up one at a time, in the order you laid them. Select a foundation to cancel it for a full refund. Build buttons marked ⚔ counter enemies you've seen; a tab marked <b>idle</b> has a factory doing nothing.</p>
   <h3>Army</h3><p>Tap a unit to select it, drag-hold (long-press) to box-select, double-tap to grab all of that type on screen. With a mouse, Shift+click adds a unit to the selection or takes it out. Tap the ground to move there, tap an enemy to attack. <b>⚔ Attack</b> makes the next move an attack-move that fights everything on the way. With a mouse, left click only selects: right-click orders (move, attack, rally point), and A then left click on the ground attack-moves. Double-click a building to select every one of its kind and give them one rally point. <b>💤 Idle</b> grabs units with no orders.</p>
   <h3>Squads</h3><p>Hold a squad chip (<b>1</b>, <b>2</b>, <b>3</b>) to save the selected units into it. Tap it to select them again, double-tap to fly the camera there. It flashes red when a member is hit. Keys: 1–3 select, Ctrl+1–3 (or Shift+1–3) save.</p>
   <h3>Infantry</h3><p>You start every battle with a <b>Trooper Squad</b> by your HQ. The <b>Assembly Bay</b> trains more: <b>Troopers</b> (cheap rifles that hit air too), <b>Rocket Squads</b> (kill Mastodons and Hornets) and, with a Tech Lab, <b>Sniper Teams</b> (delete other infantry, and stay hidden in woods unless they fire or you come within ${INF.concealRadius} tiles). A squad is one unit of several robots: they fall as it takes damage, and it shoots weaker with each one lost. Squads walk through woods and rough ground at full speed, take half damage in woods and capture Uplinks twice as fast, but Mastodons crush them.</p>

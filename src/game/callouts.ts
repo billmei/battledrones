@@ -194,7 +194,8 @@ export class BattleCallouts {
   /** When each banner went up (CALLOUTS.bannersPerMinute). */
   private shown: number[] = [];
   private lastBigKill = -Infinity;
-  private wasReady = false;
+  /** Our foundations last frame (one standing now: "Construction complete"). */
+  private laying: number[] = [];
   private airSeen: Record<Faction, number> = perSide(() => -Infinity);
   private airArmed: Record<Faction, boolean> = perSide(() => true);
   private lastAirScan = -Infinity;
@@ -656,10 +657,12 @@ export class BattleCallouts {
     // streak banners whose hold has run out
     for (const f of sidesOf(w)) this.flushStreak(f, t);
     if (!h.spectator) {
-      const ready = !!w.factions[h.player].pending?.ready;
-      if (ready && !this.wasReady)
+      // a foundation of ours that stands now
+      const laying: number[] = [];
+      for (const b of w.buildings.values()) if (b.faction === h.player && b.build !== undefined) laying.push(b.id);
+      if (this.laying.some((id) => w.buildings.get(id)?.build === undefined && w.buildings.has(id)))
         this.say({ key: "construction", text: "Construction complete", priority: 3, tone: "good", caption: false }, t);
-      this.wasReady = ready;
+      this.laying = laying;
     }
     if (t - this.lastAirScan >= CALLOUTS.airScanS) {
       this.lastAirScan = t;

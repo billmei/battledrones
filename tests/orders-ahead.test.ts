@@ -193,11 +193,11 @@ describe("orders in flight come off", () => {
   it("all at once when the match ends with no result", () => {
     const w = field();
     const c = duel(w);
-    c.enqueue({ type: "startBuilding", faction: "blue", building: "fab-plant" });
+    c.enqueue({ type: "placeBuilding", faction: "blue", building: "fab-plant", tx: 5, ty: 5 });
     c.drainCommands();
     c.dropInFlight();
     expect(c.inFlight).toEqual([]);
-    expect(c.view().pending).toBeNull();
+    expect(c.view().queue).toEqual([]);
   });
 });
 

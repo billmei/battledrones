@@ -257,13 +257,14 @@ export interface Building {
    * for build range: nothing can be built off it. Decided when it is placed.
    */
   outpost?: boolean;
-}
-
-/** A building being constructed C&C-style (timer in the "sidebar"). */
-export interface PendingBuilding {
-  kind: BuildingKind;
-  remaining: number;
-  ready: boolean;
+  /**
+   * A foundation: placed and paid for, still going up. Ticks of work left
+   * (economy.ts tickConstruction); absent once it stands. A foundation is
+   * there to be shot at and blocks the ground, but does nothing else: it
+   * gives no build range, tech, production, drop-off, guns or repairs. A
+   * side's foundations go up one at a time, in the order they were placed.
+   */
+  build?: number;
 }
 
 export interface FactionStats {
@@ -280,8 +281,6 @@ export interface FactionStats {
 
 export interface FactionState {
   scrap: number;
-  /** At most one building under construction at a time (C&C rule). */
-  pending: PendingBuilding | null;
   stats: FactionStats;
   /** Multiplier on harvested scrap (AI difficulty handicap/bonus). */
   incomeMult: number;
@@ -839,9 +838,8 @@ export type Command =
   /** `buildingId`: a production building, or an anchored Goliath's unit id (it trains infantry, goliath.ts). */
   | { type: "produce"; faction: Faction; buildingId: number; unit: UnitKind }
   | { type: "cancelProduce"; faction: Faction; buildingId: number; unit: UnitKind }
-  | { type: "startBuilding"; faction: Faction; building: BuildingKind }
-  | { type: "cancelBuilding"; faction: Faction }
-  | { type: "placeBuilding"; faction: Faction; tx: number; ty: number }
+  /** Lay a foundation for `building` at top-left tile (tx, ty), paid now; it goes up in turn (economy.ts). A foundation is cancelled with `sell` (paid back in full). */
+  | { type: "placeBuilding"; faction: Faction; building: BuildingKind; tx: number; ty: number }
   | { type: "sell"; faction: Faction; buildingId: number }
   | { type: "rally"; faction: Faction; buildingId: number; x: number; y: number }
   /** Last Stand: bring the next wave in now for a scrap bonus. */

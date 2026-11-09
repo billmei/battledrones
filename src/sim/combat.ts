@@ -335,7 +335,7 @@ function tickHealer(w: World, u: Unit, engaged: Set<number>): void {
     }
   }
   for (const b of w.buildings.values()) {
-    if (b.faction !== u.faction || b.hp >= BUILDINGS[b.kind].hp) continue;
+    if (b.faction !== u.faction || b.hp >= BUILDINGS[b.kind].hp || b.build !== undefined) continue; // (a foundation fills in as it goes up)
     const d = distToBuilding(b, u.x, u.y);
     if (d > reach) continue;
     const s = d + 2 + (b.hp / BUILDINGS[b.kind].hp) * 3;
@@ -452,7 +452,7 @@ export function tickCombat(w: World): Set<number> {
     if (b.cooldown > 0) b.cooldown--;
     if (isStunned(w, b.id)) continue; // EMP'd: guns offline
     const stats = BUILDINGS[b.kind];
-    if (stats.targets === "none") continue;
+    if (stats.targets === "none" || b.build !== undefined) continue; // (a foundation's guns aren't up yet)
     const c = buildingCenter(b);
     const found = findTarget(w, b.faction, stats.targets, c.x, c.y, stats.range + BUILDINGS[b.kind].size / 2 - 0.5);
     if (found) fire(w, { building: b }, found.id, incidents);
@@ -745,7 +745,6 @@ export function eliminate(w: World, f: Faction, by: Faction | null): void {
     l.owner = null;
     w.fx.push({ type: "uplinkFlip", id: l.id, x: l.x, y: l.y, owner: null, prev: f, by: by ?? f });
   }
-  w.factions[f].pending = null;
   selfDestruct(w, f);
 }
 

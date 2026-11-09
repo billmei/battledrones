@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BUILDINGS, ECONOMY, TICK_RATE, UNITS } from "../../sim/balance";
+import { FOUNDATION_HP, buildProgress, constructing } from "../../sim/economy";
 import { isInfantry, squadAlive } from "../../sim/infantry";
 import { liftedBy } from "../../sim/lift";
 import type { Building, BuildingKind, Faction, FxEvent, Unit, UnitKind, WeaponFx, World } from "../../sim/types";
@@ -104,6 +105,38 @@ interface BuildingView {
   roof: Float32Array;
   /** A Gantry's build stages, crane and lights (render/goliath.ts). */
   gantry: GantryView | null;
+  /** How far up it's drawn, 0..1 (a foundation rises with its work; 1: it stands). */
+  rise: number;
+  /** A foundation's slab and scaffold poles (child of the root), or null. */
+  scaffold: THREE.Group | null;
+}
+
+/** A foundation's look: a concrete slab, and hazard-yellow poles as tall as the building will be. */
+const slabGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+const slabMat = new THREE.MeshStandardMaterial({ color: 0x8d8778, roughness: 0.95 });
+const poleMat = new THREE.MeshStandardMaterial({ color: 0xe0b020, roughness: 0.6, emissive: 0x2a1e00 });
+
+function scaffoldFor(size: number, height: number): THREE.Group {
+  const g = new THREE.Group();
+  const slab = new THREE.Mesh(slabGeo, slabMat);
+  slab.scale.set(size * 0.96, 0.05, size * 0.96);
+  g.add(slab);
+  const h = Math.max(0.35, height);
+  const off = size * 0.46;
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    const pole = new THREE.Mesh(slabGeo, poleMat);
+    pole.scale.set(0.05, h, 0.05);
+    pole.position.set(sx * off, 0, sz * off);
+    g.add(pole);
+  }
+  // a rail round the top, so the poles read as a frame
+  for (const [x, z, w, d] of [[0, -off, size * 0.92, 0.04], [0, off, size * 0.92, 0.04], [-off, 0, 0.04, size * 0.92], [off, 0, 0.04, size * 0.92]] as const) {
+    const rail = new THREE.Mesh(slabGeo, poleMat);
+    rail.scale.set(w, 0.04, d);
+    rail.position.set(x, h - 0.04, z);
+    g.add(rail);
+  }
+  return g;
 }
 
 type View3 = UnitView | BuildingView;
@@ -1062,11 +1095,18 @@ export class EntityRenderer {
     const v: BuildingView = {
       kind: "building", m, bkind: b.kind, faction: b.faction, face: b.facing, recoil: 0, lastFired: b.firedTick,
       smokeT: 0, size, tx: b.tx, ty: b.ty, cx, cy, base, visible: true, seen: true, hp: b.hp / BUILDINGS[b.kind].hp,
-      variant: "normal", warmUntil: 0, top: m.def.height, roof: roofOf(b.kind, m.def, size), gantry: null
+      variant: "normal", warmUntil: 0, top: m.def.height, roof: roofOf(b.kind, m.def, size), gantry: null,
+      rise: buildProgress(b), scaffold: null
     };
     // (the Gantry, and the Goliath taking shape on it, are always in the enemy's sight)
     if (b.kind === "gantry") v.gantry = new GantryView(this.host, m, b, cx, cy, base);
-    if (this.world.tick > 1) {
+    if (b.build !== undefined) {
+      // a foundation: a slab and a frame, the building rising inside it as the work goes on
+      v.scaffold = scaffoldFor(size, m.def.height);
+      m.root.add(v.scaffold);
+      this.drawRise(v);
+      for (let i = 0; i < 5; i++) this.fx.dust(cx + (Math.random() - 0.5) * size, cy + (Math.random() - 0.5) * size);
+    } else if (this.world.tick > 1) {
       // freshly placed: it rises from the ground in a puff of dust
       m.root.scale.set(1, 0.05, 1);
       this.v.tweens.add({ dur: 480, ease: Ease.backOut, update: (k) => m.root.scale.set(0.9 + 0.1 * k, Math.max(0.05, k), 0.9 + 0.1 * k) });
@@ -1083,7 +1123,37 @@ export class EntityRenderer {
     return false;
   }
 
+  /** Scale a building to how far up it is (the scaffold kept at full height). */
+  private drawRise(v: BuildingView): void {
+    const y = 0.06 + 0.94 * v.rise;
+    v.m.root.scale.set(0.94, y, 0.94);
+    if (v.scaffold) v.scaffold.scale.set(1 / 0.94, 1 / y, 1 / 0.94);
+  }
+
+  /** A foundation's rise as the work goes on, and the moment it stands. */
+  private updateRise(b: Building, v: BuildingView, dtMs: number): void {
+    if (b.build !== undefined) {
+      const p = buildProgress(b);
+      // (eased toward the sim's progress: smooth between ticks, quick after a jump such as a rewind)
+      v.rise += (p - v.rise) * Math.min(1, dtMs / 120);
+      this.drawRise(v);
+      // a little dust off the one going up now
+      if (v.visible && constructing(this.world, b.faction) === b && Math.random() < dtMs / 400)
+        this.fx.dust(v.cx + (Math.random() - 0.5) * v.size, v.cy + (Math.random() - 0.5) * v.size);
+      return;
+    }
+    if (!v.scaffold && v.rise >= 1) return;
+    // done: the frame comes down and the building settles to full size
+    if (v.scaffold) v.m.root.remove(v.scaffold);
+    v.scaffold = null;
+    v.rise = 1;
+    const m = v.m;
+    this.v.tweens.add({ dur: 420, ease: Ease.backOut, update: (k) => m.root.scale.set(0.94 + 0.06 * k, 0.94 + 0.06 * k, 0.94 + 0.06 * k) });
+    for (let i = 0; i < 8; i++) this.fx.dust(v.cx + (Math.random() - 0.5) * v.size, v.cy + (Math.random() - 0.5) * v.size);
+  }
+
   private updateBuilding(b: Building, v: BuildingView, dtMs: number, turnK: number, alpha: number): void {
+    this.updateRise(b, v, dtMs);
     const friendly = this.isFriendly(b.faction);
     const always = !!BUILDINGS[b.kind].alwaysVisible;
     const visible = friendly || always || this.buildingShown(b);
@@ -1093,7 +1163,8 @@ export class EntityRenderer {
     // a remembered enemy building out of sight keeps the health it had when last seen (a Gantry is never out of sight)
     v.seen = friendly || always || this.footprintSeen(v);
     v.gantry?.update(b, dtMs, alpha, visible);
-    if (v.seen) v.hp = b.hp / BUILDINGS[b.kind].hp;
+    // (a foundation's health fills in as it goes up: judged against what it would have by now)
+    if (v.seen) v.hp = Math.min(1, b.hp / (BUILDINGS[b.kind].hp * (b.build === undefined ? 1 : FOUNDATION_HP + (1 - FOUNDATION_HP) * buildProgress(b))));
     const ratio = v.hp;
     this.setVariant(v, v.seen && performance.now() < v.warmUntil ? "warm" : ratio < 0.5 ? "damaged" : "normal");
     if (v.m.turret) {

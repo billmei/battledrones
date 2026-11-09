@@ -114,17 +114,16 @@ export const scriptPilot =
       const army = mine.filter((u) => u.kind !== "harvester" && UNITS[u.kind].dps > 0);
       let scrap = f.scrap;
       // construction
-      if (f.pending?.ready) {
-        const k = f.pending.kind;
-        const s = spotFor(w, k, cfg.anchor?.(w, k) ?? { x: hqC.x + (w.width / 2 - hqC.x) * 0.12, y: hqC.y + (w.height / 2 - hqC.y) * 0.12 });
-        if (s) cmds.push({ type: "placeBuilding", faction: "blue", tx: s.tx, ty: s.ty });
-        else cmds.push({ type: "cancelBuilding", faction: "blue" });
-      } else if (!f.pending && bi < cfg.build.length) {
+      // (one foundation at a time, as the pilot always built)
+      if (!myB.some((b) => b.build !== undefined) && bi < cfg.build.length) {
         const next = cfg.build[bi]!;
         const req = BUILDINGS[next].requires;
-        if (scrap >= BUILDINGS[next].cost && (!req || req.some((r) => myB.some((b) => b.kind === r)))) {
-          cmds.push({ type: "startBuilding", faction: "blue", building: next });
-          scrap -= BUILDINGS[next].cost;
+        if (scrap >= BUILDINGS[next].cost && (!req || req.some((r) => myB.some((b) => b.kind === r && b.build === undefined)))) {
+          const s = spotFor(w, next, cfg.anchor?.(w, next) ?? { x: hqC.x + (w.width / 2 - hqC.x) * 0.12, y: hqC.y + (w.height / 2 - hqC.y) * 0.12 });
+          if (s) {
+            cmds.push({ type: "placeBuilding", faction: "blue", building: next, tx: s.tx, ty: s.ty });
+            scrap -= BUILDINGS[next].cost;
+          }
           bi++;
         }
       }

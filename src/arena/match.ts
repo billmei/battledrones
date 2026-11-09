@@ -19,7 +19,6 @@ import { DIFFICULTY, createAiState, tickAi, type AiState, type Difficulty, type 
 import { TICK_RATE } from "../sim/balance";
 import { hash32 } from "../sim/rand";
 import { OPENER_IDS, allowedOpener, pickAiOpener, type OpenerId } from "../sim/openers";
-import { placementBlocker } from "../sim/placement";
 import type { MutatorId } from "../sim/rules";
 import { step } from "../sim/sim";
 import type { Command, Faction, PerSide, World } from "../sim/types";
@@ -27,9 +26,9 @@ import { MAPS, createMapWorld, isKnownMapId, mapById } from "../sim/maps";
 import { tickFog } from "../sim/fog";
 import { applyOpener } from "../sim/openers";
 import { SideLog, type Urgent } from "./events";
-import { clock, enemyOf, frameOf } from "./frame";
+import { clock, enemyOf } from "./frame";
 import { briefing, look, observeState, renderObservation } from "./observe";
-import { parseOrders, suggestSpot, type BuildIntent } from "./orders";
+import { parseOrders } from "./orders";
 import { HASH_EVERY, endOf, worldHash, type BattleRecord, type RoundLog, type SeatInfo, type Usage } from "./record";
 
 export const ROUND_TICKS = 50;
@@ -91,7 +90,6 @@ interface Seat {
   orders: unknown[];
   results: string[];
   lastResults: string[];
-  build: BuildIntent | null;
   news: string[];
   radio?: string;
   endedHow?: string;
@@ -135,7 +133,6 @@ export class Arena {
         orders: [],
         results: [],
         lastResults: [],
-        build: null,
         news: []
       };
     };
@@ -235,12 +232,10 @@ export class Arena {
         renderObservation(observeState(this.w, side), { round: 0, lastRound: this.lastRound, roundSecs: this.roundTicks / TICK_RATE, notes: s.notes })
       ].join("\n");
     }
-    const placeAt = this.placeAtOwn(side);
     return renderObservation(observeState(this.w, side), {
       round: this.round,
       lastRound: this.lastRound,
       roundSecs: this.roundTicks / TICK_RATE,
-      placeAt,
       news: s.news,
       results: [...s.lastResults, ...(s.results.length ? ["(this round so far)", ...s.results] : [])],
       notes: s.notes,
@@ -266,8 +261,6 @@ export class Arena {
     const lines = batch.results.map((r) => r.replace(/^(\d+)\./, (_, n) => `${base + Number(n)}.`));
     s.results.push(...lines);
     if (batch.opener) s.opener = batch.opener;
-    if (batch.cancelBuild) s.build = null;
-    if (batch.build) s.build = batch.build;
     return lines.join("\n");
   }
 
@@ -360,7 +353,6 @@ export class Arena {
         for (const side of SIDES) {
           const s = this.seats[side];
           const cmds: Command[] = s.ai ? tickAi(w, side, s.ai) : i === 0 ? [...s.commands] : [];
-          if (!s.ai) cmds.push(...this.autoPlace(s));
           if (cmds.length) this.record.turns.push([w.tick, side, cmds]);
           all.push(...cmds);
         }
@@ -426,39 +418,6 @@ export class Arena {
       s.news = s.log.take(this.w);
       if (cut) s.news.unshift(cut);
     }
-  }
-
-  /** The building a seat is constructing, placed the tick it's ready: where it asked, else a sensible spot. */
-  private autoPlace(s: Seat): Command[] {
-    const w = this.w;
-    const f = w.factions[s.side];
-    if (!f.pending?.ready) return [];
-    const kind = f.pending.kind;
-    const want = s.build?.kind === kind ? s.build.at : null;
-    let spot: [number, number] | null = null;
-    const fr = frameOf(w, s.side);
-    if (want) {
-      const why = placementBlocker(w, s.side, kind, want[0], want[1]);
-      if (!why) spot = want;
-      else {
-        spot = suggestSpot(w, s.side, kind, { x: want[0] + 1, y: want[1] + 1 });
-        s.log.say(`Your ${kind} couldn't go at ${fr.topLeft(kind, want[0], want[1]).join(",")} (${why}): placed nearby instead`);
-      }
-    } else spot = suggestSpot(w, s.side, kind);
-    s.build = null;
-    if (!spot) {
-      s.log.say(`Nowhere to put your ${kind}: construction cancelled and refunded`);
-      return [{ type: "cancelBuilding", faction: s.side }];
-    }
-    return [{ type: "placeBuilding", faction: s.side, tx: spot[0], ty: spot[1] }];
-  }
-
-  /** Where the building under construction will go, in the side's frame (if it asked for a spot). */
-  private placeAtOwn(side: Faction): [number, number] | null {
-    const s = this.seats[side];
-    const f = this.w.factions[side];
-    if (!f.pending || !s.build?.at || s.build.kind !== f.pending.kind) return null;
-    return frameOf(this.w, side).topLeft(f.pending.kind, s.build.at[0], s.build.at[1]);
   }
 }
 

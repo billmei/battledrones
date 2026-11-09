@@ -56,32 +56,32 @@ export function scriptedPlayer(p: PlayerProfile): (w: World) => Command[] {
     const army = mine.filter((u) => u.kind !== "harvester" && UNITS[u.kind].dps > 0);
     const front = { x: hqC.x + (w.width / 2 - hqC.x) * 0.25, y: hqC.y + (w.height / 2 - hqC.y) * 0.25 };
     let scrap = f.scrap;
-    // construction: next building of the list, placed (where a phone's placement ghost suggests) near the HQ
-    if (f.pending?.ready) {
-      const k = f.pending.kind;
-      const anchor = k === "turret" ? front : { x: hqC.x + (w.width / 2 - hqC.x) * 0.1, y: hqC.y + (w.height / 2 - hqC.y) * 0.1 };
-      const size = BUILDINGS[k].size;
-      let best: { tx: number; ty: number } | null = null;
-      let bd = Infinity;
-      for (let ty = 0; ty < w.height; ty++)
-        for (let tx = 0; tx < w.width; tx++) {
-          const d = Math.hypot(tx + size / 2 - anchor.x, ty + size / 2 - anchor.y);
-          if (d < bd && canPlaceBuilding(w, "blue", k, tx, ty)) {
-            bd = d;
-            best = { tx, ty };
-          }
-        }
-      cmds.push(best ? { type: "placeBuilding", faction: "blue", ...best } : { type: "cancelBuilding", faction: "blue" });
-    } else if (!f.pending) {
+    // construction: next building of the list, its foundation laid near the HQ (one at a time)
+    const laying = myB.some((b) => b.build !== undefined);
+    if (!laying) {
       const BUILD = p.build;
       while (bi < BUILD.length && myB.some((b) => b.kind === BUILD[bi]) && BUILD.indexOf(BUILD[bi]!) === bi) bi++; // opener gave it
-      const next = BUILD[bi];
-      if (next) {
-        const req = BUILDINGS[next].requires;
-        if (scrap >= BUILDINGS[next].cost && (!req || req.some((r) => myB.some((b) => b.kind === r)))) {
-          cmds.push({ type: "startBuilding", faction: "blue", building: next });
-          scrap -= BUILDINGS[next].cost;
-          bi++;
+      const k = BUILD[bi];
+      if (k) {
+        const req = BUILDINGS[k].requires;
+        if (scrap >= BUILDINGS[k].cost && (!req || req.some((r) => myB.some((b) => b.kind === r && b.build === undefined)))) {
+          const anchor = k === "turret" ? front : { x: hqC.x + (w.width / 2 - hqC.x) * 0.1, y: hqC.y + (w.height / 2 - hqC.y) * 0.1 };
+          const size = BUILDINGS[k].size;
+          let best: { tx: number; ty: number } | null = null;
+          let bd = Infinity;
+          for (let ty = 0; ty < w.height; ty++)
+            for (let tx = 0; tx < w.width; tx++) {
+              const d = Math.hypot(tx + size / 2 - anchor.x, ty + size / 2 - anchor.y);
+              if (d < bd && canPlaceBuilding(w, "blue", k, tx, ty)) {
+                bd = d;
+                best = { tx, ty };
+              }
+            }
+          if (best) {
+            cmds.push({ type: "placeBuilding", faction: "blue", building: k, ...best });
+            scrap -= BUILDINGS[k].cost;
+            bi++;
+          }
         }
       }
     }

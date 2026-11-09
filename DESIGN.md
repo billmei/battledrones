@@ -369,13 +369,20 @@ re-run with it in (see *Infantry pass* under Balance & pacing).
 | **Radar** | Reveals a 13-tile radius through the fog. 1×1. | — |
 | **Gantry** | Builds the Goliath, one at a time. One per side; the enemy always sees it, and the Goliath taking shape on it. 3×3. | Fab Plant, Airpad, Tech Lab **and** Assembly Bay |
 
-C&C build flow: pick a structure → it constructs on a timer → tap it again
-and place it on a valid spot within 6 tiles of your base (see "Command UX"
-below), or anything but an HQ within 3 tiles of an anchored Goliath, as an
-**outpost** that never counts as base for build range (see *The Goliath*
-below). One construction at a time. Buildings can be **sold** for 50%
-(scaled by health, plus whatever is still queued in them, at what it
-cost).
+Build flow: pick a structure → place its **foundation** on a valid spot
+within 6 tiles of your base (see "Command UX" below), or anything but an HQ
+within 3 tiles of an anchored Goliath, as an **outpost** that never counts
+as base for build range (see *The Goliath* below). The price is paid when
+the foundation goes down, and the building goes up right there over its
+build time, its health filling in as it rises. Foundations wait in a build
+queue: lay as many as you can pay for (Shift+click with a mouse keeps
+placing), and they go up one at a time, in the order they were laid. A
+foundation blocks the ground and can be shot, but does nothing else (no
+guns, production, drop-off, tech or build range) until it stands; a
+building whose prerequisite is only a foundation can still be queued after
+it. Selecting a foundation offers **Cancel** for a full refund. Buildings
+can be **sold** for 50% (scaled by health, plus whatever is still queued in
+them, at what it cost).
 
 ### Units (16)
 

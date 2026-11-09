@@ -120,8 +120,9 @@ describe("placement: why not, and where instead", () => {
 });
 
 describe("controller: touch placement", () => {
+  /** Scrap enough for `kind` (placement pays for it). */
   const ready = (w: World, kind: BuildingKind) => {
-    w.factions.blue.pending = { kind, remaining: 0, ready: true };
+    w.factions.blue.scrap = Math.max(w.factions.blue.scrap, BUILDINGS[kind].cost * 3);
   };
 
   it("moves the ghost without building, then builds on confirm", () => {
@@ -134,7 +135,7 @@ describe("controller: touch placement", () => {
     expect(c.drainCommands()).toEqual([]);
     expect(c.placementProblem()).toBeNull();
     expect(c.commitPlacement()).toBe(true);
-    expect(c.drainCommands()).toEqual([{ type: "placeBuilding", faction: "blue", tx: 9, ty: 5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "placeBuilding", faction: "blue", building: "turret", tx: 9, ty: 5 }]);
     expect(c.placing).toBeNull();
     expect(c.placeAt).toBeNull();
     expect(c.lastFeedback?.kind).toBe("place");
@@ -162,7 +163,31 @@ describe("controller: touch placement", () => {
     expect(c.denied?.reason).toBe("Too far from base");
     expect(c.placing).toBe("turret");
     c.tapWorld(9.5, 5.5, { kind: "ground" });
-    expect(c.drainCommands()).toEqual([{ type: "placeBuilding", faction: "blue", tx: 9, ty: 5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "placeBuilding", faction: "blue", building: "turret", tx: 9, ty: 5 }]);
+    expect(c.placing).toBeNull();
+  });
+
+  it("Shift+click lays another and stays in placement while the scrap lasts", () => {
+    const w = field();
+    const c = new Controller(w);
+    w.factions.blue.scrap = BUILDINGS.turret.cost * 2;
+    c.placing = "turret";
+    c.tapWorld(9.5, 5.5, { kind: "ground" }, true);
+    expect(c.placing).toBe("turret");
+    // the scrap left pays for one more: after it, placement ends
+    c.tapWorld(10.5, 5.5, { kind: "ground" }, true);
+    expect(c.placing).toBeNull();
+    expect(c.drainCommands().map((x) => x.type)).toEqual(["placeBuilding", "placeBuilding"]);
+  });
+
+  it("refuses a spot it can't pay for", () => {
+    const w = field();
+    const c = new Controller(w);
+    w.factions.blue.scrap = 0;
+    c.placing = "turret";
+    c.movePlacement(9, 5);
+    expect(c.placementProblem()).toBe("Not enough scrap");
+    expect(c.commitPlacement()).toBe(false);
   });
 
   it("drops the ghost when placement ends", () => {
@@ -171,9 +196,8 @@ describe("controller: touch placement", () => {
     ready(w, "turret");
     c.placing = "turret";
     c.movePlacement(9, 5);
-    w.factions.blue.pending = null; // cancelled elsewhere
+    c.placing = null; // put away (the ✕ chip, Esc)
     c.prune();
-    expect(c.placing).toBeNull();
     expect(c.placeAt).toBeNull();
   });
 

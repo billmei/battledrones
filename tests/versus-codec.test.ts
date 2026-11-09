@@ -111,9 +111,9 @@ function handWritten(): Sample[] {
       add({ type: "produce", faction: f, buildingId: 12, unit }, ctx);
       add({ type: "cancelProduce", faction: f, buildingId: TOP, unit }, ctx);
     }
-    for (const building of BUILDING_KINDS) add({ type: "startBuilding", faction: f, building }, ctx);
-    for (const type of ["cancelBuilding", "callWave", "resign"] as const) add({ type, faction: f }, ctx);
-    for (const [tx, ty] of [[0, 0], [S - 1, S - 1], [7, S - 1]] as const) add({ type: "placeBuilding", faction: f, tx, ty }, ctx);
+    for (const type of ["callWave", "resign"] as const) add({ type, faction: f }, ctx);
+    for (const [building, tx, ty] of [["hq", 0, 0], ["gantry", S - 1, S - 1], ["turret", 7, S - 1]] as const) add({ type: "placeBuilding", faction: f, building, tx, ty }, ctx);
+    for (const building of BUILDING_KINDS) add({ type: "placeBuilding", faction: f, building, tx: 3, ty: 4 }, ctx);
     add({ type: "sell", faction: f, buildingId: 0 }, ctx);
     add({ type: "sell", faction: f, buildingId: TOP }, ctx);
     add({ type: "board", faction: f, unitIds: [30, 31], carrierId: TOP }, ctx);
@@ -136,7 +136,7 @@ function handWritten(): Sample[] {
     add({ type: "produce", faction: f, buildingId: -0, unit: "scout" }, ctx);
     add({ type: "sell", faction: f, buildingId: -0 }, ctx);
     add({ type: "rally", faction: f, buildingId: -0, x: 1, y: 1 }, ctx);
-    add({ type: "placeBuilding", faction: f, tx: -0, ty: -0 }, ctx);
+    add({ type: "placeBuilding", faction: f, building: "depot", tx: -0, ty: -0 }, ctx);
     add({ type: "board", faction: f, unitIds: [3], carrierId: -0 }, ctx);
     add({ type: "lift", faction: f, unitIds: [-0, 1], goliathId: -0 }, ctx);
   }
@@ -288,7 +288,7 @@ describe("the command codec", () => {
     const plus = (v: unknown) => Object.is(v, 0);
     for (const c of [
       { type: "sell", faction: "blue", buildingId: -0 },
-      { type: "placeBuilding", faction: "blue", tx: -0, ty: -0 },
+      { type: "placeBuilding", faction: "blue", building: "turret", tx: -0, ty: -0 },
       { type: "attack", faction: "blue", unitIds: [-0, 0], targetId: -0 },
       { type: "lift", faction: "blue", unitIds: [-0, 1], goliathId: -0 }
     ] as Command[]) {
@@ -339,10 +339,10 @@ describe("the command codec", () => {
       { type: "stop", faction: f, unitIds: [] },
       { type: "produce", faction: f, buildingId: NaN, unit: "scout" },
       { type: "produce", faction: f, buildingId: 3, unit: "tank" as never },
-      { type: "startBuilding", faction: f, building: "castle" as never },
-      { type: "placeBuilding", faction: f, tx: 48, ty: 0 },
-      { type: "placeBuilding", faction: f, tx: 0, ty: -1 },
-      { type: "placeBuilding", faction: f, tx: 2.5, ty: 3 },
+      { type: "placeBuilding", faction: f, building: "castle" as never, tx: 1, ty: 1 },
+      { type: "placeBuilding", faction: f, building: "turret", tx: 48, ty: 0 },
+      { type: "placeBuilding", faction: f, building: "turret", tx: 0, ty: -1 },
+      { type: "placeBuilding", faction: f, building: "turret", tx: 2.5, ty: 3 },
       { type: "sell", faction: f, buildingId: 2 ** 30 },
       { type: "rally", faction: f, buildingId: 4, x: NaN, y: NaN },
       { type: "calldown", faction: f, power: "nuke" as never, x: 1, y: 1 },
@@ -368,14 +368,14 @@ describe("the command codec", () => {
     for (let t = COMMAND_TYPES.length; t < 32; t++) expect(one(bits([t, 5], [0, 40])), `type ${t}`).toThrow(/outside its table/);
     // a unit kind or building kind outside its table
     expect(one(bits([T("produce"), 5], [0b010, 3], [16, 5]))).toThrow(/outside its table/);
-    expect(one(bits([T("startBuilding"), 5], [10, 4]))).toThrow(/outside its table/);
+    expect(one(bits([T("placeBuilding"), 5], [10, 4], [0, 6], [0, 6]))).toThrow(/outside its table/);
     // sameAsPrevious with no previous list
     expect(one(bits([T("stop"), 5], [1, 1]))).toThrow(/no previous/);
     // a cell off the map, a tile off the map
     expect(one(bits([T("rally"), 5], [1, 1], [768, 10], [5, 10]))).toThrow(/off a 48-tile map/);
     expect(one(bits([T("calldown"), 5], [0, 2], [5, 10], [1023, 10]))).toThrow(/off a 48-tile map/);
-    expect(one(bits([T("placeBuilding"), 5], [48, 6], [0, 6]))).toThrow(/off a 48-tile map/);
-    expect(one(bits([T("placeBuilding"), 5], [3, 6], [63, 6]))).toThrow(/off a 48-tile map/);
+    expect(one(bits([T("placeBuilding"), 5], [0, 4], [48, 6], [0, 6]))).toThrow(/off a 48-tile map/);
+    expect(one(bits([T("placeBuilding"), 5], [0, 4], [3, 6], [63, 6]))).toThrow(/off a 48-tile map/);
     // a UE with more than 24 leading zeros
     expect(one(bits([T("sell"), 5], [0, 25], [1, 1], [0, 25]))).toThrow(/24 leading zeros/);
     // ids no canonical command has (≥ 2^24)
@@ -434,9 +434,9 @@ describe("the command codec", () => {
 
   it("has complete, explicit tables", () => {
     expect(TABLES_COMPLETE).toBe(true);
-    expect(CODEC_VERSION).toBe(1);
+    expect(CODEC_VERSION).toBe(2);
     expect(new Set(COMMAND_TYPES).size).toBe(COMMAND_TYPES.length);
-    expect(COMMAND_TYPES.length).toBe(20);
+    expect(COMMAND_TYPES.length).toBe(18);
     expect(new Set(UNIT_KINDS)).toEqual(new Set(Object.keys(UNITS)));
     expect(UNIT_KINDS.length).toBe(Object.keys(UNITS).length);
     expect(new Set(BUILDING_KINDS)).toEqual(new Set(Object.keys(BUILDINGS)));

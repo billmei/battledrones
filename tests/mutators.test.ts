@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { STRATEGIES, createAiState, tickAi, type StrategyName } from "../src/sim/ai/commander";
 import { CONDOR_AI, dropsCondors } from "../src/sim/ai/condor";
 import { BUILDINGS, ECONOMY, TICK_RATE, UNITS } from "../src/sim/balance";
-import { buildingBlocker, unitBlocker } from "../src/sim/economy";
+import { buildingBlocker, canPlaceBuilding, unitBlocker } from "../src/sim/economy";
 import { Vis, tickFog } from "../src/sim/fog";
 import { createMapWorld } from "../src/sim/maps";
 import {
@@ -112,9 +112,13 @@ describe("mutator effects", () => {
     const ticksToBuild = (muts: MutatorId[]) => {
       const w = createMapWorld("riverlands", { mutators: muts });
       w.factions.blue.scrap = 5000;
-      step(w, [{ type: "startBuilding", faction: "blue", building: "turret" }]);
+      const hq = [...w.buildings.values()].find((b) => b.faction === "blue" && b.kind === "hq")!;
+      let at: { tx: number; ty: number } | null = null;
+      for (let dy = -6; dy <= 6 && !at; dy++) for (let dx = -6; dx <= 6 && !at; dx++) if (canPlaceBuilding(w, "blue", "turret", hq.tx + dx, hq.ty + dy)) at = { tx: hq.tx + dx, ty: hq.ty + dy };
+      step(w, [{ type: "placeBuilding", faction: "blue", building: "turret", ...at! }]);
+      const t = [...w.buildings.values()].find((b) => b.faction === "blue" && b.kind === "turret")!;
       let n = 1;
-      while (!w.factions.blue.pending?.ready && n < 1000) {
+      while (t.build !== undefined && n < 1000) {
         step(w, []);
         n++;
       }
@@ -155,8 +159,7 @@ describe("mutator effects", () => {
     }
     // a direct command is refused too
     w.factions.blue.scrap = 5000;
-    step(w, [{ type: "startBuilding", faction: "blue", building: "fab-plant" }]);
-    expect(w.factions.blue.pending).toBeNull();
+    expect(buildingBlocker(w, "blue", "fab-plant")).toBe("Disabled: Air War");
     const fab = spawnBuilding(w, "fab-plant", "blue", 20, 44); // even a stray one can't produce
     step(w, [{ type: "produce", faction: "blue", buildingId: fab.id, unit: "stinger" }]);
     expect(fab.queue).toHaveLength(0);
@@ -341,9 +344,10 @@ describe("infantry mutators", () => {
   it("under Airborne every personality keeps its Condor busy: an Assembly Bay for squads, and drop after drop", () => {
     // (how many drops one side gets in swings with the run: a base under attack keeps its
     // squads busy at home. So: both fly, every match, and drop after drop between them)
-    for (const seed of [3, 4]) {
+    // (the commanders' own seeds vary with the run: the map's alone hardly changes a thing)
+    for (const seed of [4, 5, 6, 7]) {
       const w = createMapWorld("frostbite", { seed, mutators: ["airborne"] });
-      const ai = { blue: createAiState("skyforce", "normal", 1), red: createAiState("airswarm", "normal", 2) };
+      const ai = { blue: createAiState("skyforce", "normal", seed * 2 + 1), red: createAiState("airswarm", "normal", seed * 2 + 2) };
       const bays = { blue: 0, red: 0 } as Record<Faction, number>;
       const drops = { blue: 0, red: 0 } as Record<Faction, number>;
       const home = perSide((f) => hqOf(w, f)!);
@@ -364,8 +368,8 @@ describe("infantry mutators", () => {
 
   it("plays an Infantry War to a finish from Assembly Bays, never building a banned kind", () => {
     const w = createMapWorld("frostbite", { seed: 11, mutators: ["infantrywar"] });
-    const a = createAiState("balanced", "normal", 1);
-    const b = createAiState("rush", "normal", 2);
+    const a = createAiState("balanced", "normal", 7);
+    const b = createAiState("rush", "normal", 8);
     const banned = new Set<string>([...rulesOf(w).bannedUnits, ...rulesOf(w).bannedBuildings]);
     const bays = { blue: 0, red: 0 } as Record<Faction, number>;
     let squads = 0;

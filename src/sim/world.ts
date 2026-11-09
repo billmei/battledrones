@@ -19,7 +19,6 @@ import { QUARTER, perSide, turnPoint, turnTile, turnVec } from "./sides";
 
 const newFaction = (): FactionState => ({
   scrap: ECONOMY.startingScrap,
-  pending: null,
   stats: { unitsBuilt: 0, unitsLost: 0, unitsKilled: 0, buildingsLost: 0, buildingsKilled: 0, scrapHarvested: 0, scrapSalvaged: 0 },
   incomeMult: 1
 });
@@ -400,7 +399,7 @@ export function nearestDropSite(w: World, faction: Faction, x: number, y: number
   const reaches = (tx: number, ty: number, size: number) =>
     !mc || canGetWithin(w, mc, x, y, tx + size / 2, ty + size / 2, DOCK_REACH, (px, py) => distToFootprint(tx, ty, size, px, py), size);
   for (const b of w.buildings.values()) {
-    if (b.faction !== faction || !BUILDINGS[b.kind].dropOff) continue;
+    if (b.faction !== faction || !BUILDINGS[b.kind].dropOff || b.build !== undefined) continue;
     const size = BUILDINGS[b.kind].size;
     if (b.outpost && !reaches(b.tx, b.ty, size)) continue;
     const d = distToFootprint(b.tx, b.ty, size, x, y);
@@ -439,7 +438,7 @@ export function nearestDropOff(w: World, faction: Faction, x: number, y: number)
   let best: Building | null = null;
   let bestD = Infinity;
   for (const b of w.buildings.values()) {
-    if (b.faction !== faction || !BUILDINGS[b.kind].dropOff) continue;
+    if (b.faction !== faction || !BUILDINGS[b.kind].dropOff || b.build !== undefined) continue;
     const d = distToBuilding(b, x, y);
     if (d < bestD) {
       bestD = d;
@@ -449,9 +448,9 @@ export function nearestDropOff(w: World, faction: Faction, x: number, y: number)
   return best;
 }
 
-/** Does the faction own at least one building of this kind? */
+/** Does the faction own at least one building of this kind (standing: a foundation doesn't count)? */
 export function hasBuilding(w: World, faction: Faction, kind: BuildingKind): boolean {
-  for (const b of w.buildings.values()) if (b.faction === faction && b.kind === kind) return true;
+  for (const b of w.buildings.values()) if (b.faction === faction && b.kind === kind && b.build === undefined) return true;
   return false;
 }
 

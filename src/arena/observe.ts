@@ -17,6 +17,7 @@ import { isExplored, isVisible, knownBuildings } from "../sim/fog";
 import { mapById } from "../sim/maps";
 import { CRATE_NAMES } from "../sim/objectives";
 import { OPENERS, OPENER_IDS, allowedOpener } from "../sim/openers";
+import { buildProgress, constructing, foundationsOf } from "../sim/economy";
 import { GOLIATH_WEAPONS, isLifted, weaponReady } from "../sim/goliath";
 import { unitSeenBy } from "../sim/infantry";
 import { POWER_KINDS, POWER_NAMES, isStunned, powerBlocker } from "../sim/powers";
@@ -46,6 +47,21 @@ export interface OwnBuilding {
   queue: { kind: UnitKind; secs: number }[];
   rally: [number, number] | null;
   stunned: boolean;
+  /** A foundation: how far up it is (%); absent once it stands. */
+  built?: number;
+}
+
+/** A foundation in the build queue (own frame), in the order they go up. */
+export interface Foundation {
+  id: number;
+  kind: BuildingKind;
+  x: number;
+  y: number;
+  pct: number;
+  /** Seconds of work left on it. */
+  secs: number;
+  /** Going up now (else waiting its turn). */
+  active: boolean;
 }
 
 export interface SeenEnemy {
@@ -72,7 +88,8 @@ export interface Observation {
   tick: number;
   scrap: number;
   meter: number;
-  pending: { kind: BuildingKind; pct: number; secs: number; ready: boolean } | null;
+  /** The build queue: foundations laid, going up one at a time in order. */
+  construction: Foundation[];
   buildings: OwnBuilding[];
   units: OwnUnit[];
   enemies: SeenEnemy[];
@@ -138,7 +155,8 @@ export function observeState(w: World, side: Faction): Observation {
       id: b.id, kind: b.kind, x, y, hp: pct(b.hp, BUILDINGS[b.kind].hp),
       queue: b.queue.map((q) => ({ kind: q.kind, secs: secs(q.remaining) })),
       rally: b.rally ? own(b.rally.x, b.rally.y) : null,
-      stunned: isStunned(w, b.id)
+      stunned: isStunned(w, b.id),
+      ...(b.build !== undefined ? { built: Math.round(100 * buildProgress(b)) } : {})
     });
   }
   buildings.sort(byPos);
@@ -224,20 +242,17 @@ export function observeState(w: World, side: Faction): Observation {
     .sort(byPos)
     .map(({ x, y, value, hot }) => ({ x, y, value, hot }));
 
-  const pend = f.pending;
+  const head = constructing(w, side);
+  const construction: Foundation[] = foundationsOf(w, side).map((b) => {
+    const [x, y] = fr.topLeft(b.kind, b.tx, b.ty);
+    return { id: b.id, kind: b.kind, x, y, pct: Math.round(100 * buildProgress(b)), secs: secs(b.build!), active: b === head };
+  });
   return {
     side,
     tick: w.tick,
     scrap: Math.floor(f.scrap),
     meter: Math.floor(w.powers.meter[side]),
-    pending: pend
-      ? {
-          kind: pend.kind,
-          pct: Math.min(100, Math.round(100 * (1 - pend.remaining / (BUILDINGS[pend.kind].buildTime * TICK_RATE)))),
-          secs: secs(pend.remaining),
-          ready: pend.ready
-        }
-      : null,
+    construction,
     buildings, units, enemies, enemyBuildings, uplinks, crates, strikes, powers, wrecks,
     winner: w.winner
   };
@@ -248,8 +263,6 @@ export interface ObserveExtras {
   round: number;
   lastRound: number;
   roundSecs: number;
-  /** Where the building under construction will go (own frame), if decided. */
-  placeAt?: [number, number] | null;
   news?: string[];
   results?: string[];
   notes?: string;
@@ -265,19 +278,20 @@ export function renderObservation(o: Observation, x: ObserveExtras): string {
       (o.uplinks.length ? `  uplinks ${held}/${o.uplinks.length}` : "")
   );
   if (o.winner) L.push(o.winner === "draw" ? "THE BATTLE IS OVER: A DRAW." : o.winner === o.side ? "THE BATTLE IS OVER: YOU WON." : "THE BATTLE IS OVER: YOU LOST.");
-  if (o.pending)
+  if (o.construction.length)
     L.push(
-      o.pending.ready
-        ? `CONSTRUCTION ${o.pending.kind} ready, placing it${x.placeAt ? ` at ${x.placeAt.join(",")}` : ""}`
-        : `CONSTRUCTION ${o.pending.kind} ${o.pending.pct}% (ready in ${o.pending.secs}s)${x.placeAt ? `, goes at ${x.placeAt.join(",")}` : ""}`
+      `CONSTRUCTION ${o.construction
+        .map((c) => `${c.kind} #${c.id} at ${c.x},${c.y} ${c.active ? `${c.pct}% (done in ${c.secs}s)` : c.pct > 0 ? `${c.pct}% (paused)` : "waiting"}`)
+        .join(", then ")}`
     );
-  else L.push("CONSTRUCTION idle: you can start a building");
+  else L.push("CONSTRUCTION idle: lay a building with build");
   L.push("BUILDINGS");
   for (const b of o.buildings) {
     const bits = [`#${b.id} ${b.kind} ${b.x},${b.y} ${b.hp}%`];
     if (b.queue.length) bits.push(`queue ${b.queue.map((q, i) => (i === 0 ? `${q.kind}(${q.secs}s)` : q.kind)).join(",")}`);
     if (b.rally) bits.push(`rally ${b.rally.join(",")}`);
     if (b.stunned) bits.push("EMP-stunned");
+    if (b.built !== undefined) bits.push(`foundation ${b.built}%`);
     L.push("  " + bits.join(" "));
   }
   L.push("UNITS" + (o.units.length ? "" : " none"));
@@ -572,7 +586,7 @@ export function briefing(w: World, side: Faction, opts: BriefingOptions): string
     ``,
     `RULES IN BRIEF`,
     `- Economy: harvesters (${UNITS.harvester.cost}) mine scrap ($) and richer crystal (*) fields and haul it to your HQ, a depot, or an anchored Goliath (${ECONOMY.harvesterCapacity} per trip). ${hq ? `Your HQ also trickles ${rules.hqTrickle ?? ECONOMY.hqTrickle} scrap/s.` : "Without an HQ there is no HQ scrap trickle."} Fields run dry; build a depot near a distant field.`,
-    `- Construction: one building at a time. It costs its price when you start it and takes its build time; when it's ready the arena places it for you: at the "at" tile you gave or, without one, a sensible spot near your base. New buildings must be within ${ECONOMY.buildRadius} tiles of one of your non-outpost buildings, or within ${GOLIATH.buildRing} tiles of an anchored Goliath, on ground (.) or road (=). Buildings outside regular base range use a Goliath's ring and become outposts, which do not extend build range. Selling refunds ${ECONOMY.sellRefund * 100}% of the cost, scaled by health.`,
+    `- Construction: "build" lays a building's foundation at once and charges its price: at the "at" tile you gave or, without one, a sensible spot near your base. Foundations go up in place one at a time, in the order you laid them, each taking its build time; lay as many as you can pay for. A foundation can be shot, blocks the ground, and does nothing else (no guns, production, tech or build range) until it stands. New buildings must be within ${ECONOMY.buildRadius} tiles of one of your non-outpost buildings, or within ${GOLIATH.buildRing} tiles of an anchored Goliath, on ground (.) or road (=). Buildings outside regular base range use a Goliath's ring and become outposts, which do not extend build range. Selling refunds ${ECONOMY.sellRefund * 100}% of the cost, scaled by health.`,
     `- Production: each building queues up to ${ECONOMY.maxQueue} units, paid when queued; new units roll out next to it, then go to its rally point if it has one (attack-moving there).`,
     `- Combat: units auto-fire at enemies in range. Damage depends on damage type vs armor (table below); woods give ground units cover. Units gain veterancy ranks (★1-★3, +${15}% damage each) from kills. Destroyed combat units leave wrecks worth 30% of their cost for the first ground unit (either side) that drives over them.`,
     w.objectives.uplinks.length
@@ -598,8 +612,8 @@ export function briefing(w: World, side: Faction, opts: BriefingOptions): string
     `  {"harvest": ["#3", "#14"], "at": [14, 43]}   harvesters mine a field ("at" optional: the nearest)`,
     `  {"produce": "stinger", "count": 2}           queue units at an eligible producer ("at": "#10" to choose a building or Goliath)`,
     `  {"cancel": "stinger", "at": "#10"}           take the last stinger off producer #10's queue (refunded)`,
-    `  {"build": "turret", "at": [9, 42]}           start a building; "at" (its top-left tile) optional`,
-    `  {"cancel": "building"}                       cancel the building under construction (refunded)`,
+    `  {"build": "turret", "at": [9, 42]}           lay a building's foundation; "at" (its top-left tile) optional`,
+    `  {"cancel": "building"}                       cancel the last foundation you laid (refunded in full; "cancel": "turret" for the last turret one)`,
     `  {"sell": "#72"}                              sell a building`,
     `  {"rally": "#10", "to": [12, 40]}             where building or Goliath #10's new units go`,
     `  {"calldown": "barrage", "at": [44, 9]}       barrage, emp, droppod or hammer`,

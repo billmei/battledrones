@@ -1,12 +1,12 @@
 import { BUILDINGS, ECONOMY, GOLIATH, TICK_RATE, UNITS } from "../sim/balance";
-import { paidFor, producerCap, producersOf, type Producer } from "../sim/economy";
+import { buildingBlocker, buildProgress, constructing, foundationsOf, paidFor, producerCap, producersOf, type Producer } from "../sim/economy";
 import { anchorBlocker, canWalk, goliathReachAt, unitCost } from "../sim/goliath";
 import { isInfantry, isTransport } from "../sim/infantry";
 import { canCarry, liftBlocker, liftedBy } from "../sim/lift";
 import { placementBlocker, snapPlacement } from "../sim/placement";
 import { POWER_NAMES, powerBlocker, powerCost, powerStatus, type PowerStatus } from "../sim/powers";
 import { carrierOf, freeSeats, isLoaded } from "../sim/transport";
-import type { BuildingKind, Command, Faction, GoliathMode, PendingBuilding, PowerKind, Unit, UnitKind, UnitOrder, World } from "../sim/types";
+import type { BuildingKind, Command, Faction, GoliathMode, PowerKind, Unit, UnitKind, UnitOrder, World } from "../sim/types";
 import { buildingAtTile, distToBuilding, domainOf, isResource, moveClassOf, onHomeLand, regionAt, tileIndex } from "../sim/world";
 import { engageable } from "../sim/combat";
 import { Squads } from "./squads";
@@ -82,15 +82,28 @@ export function pickProducer(w: World, kind: UnitKind, selected: ReadonlySet<num
  * A side's construction, scrap and queues as the build bar shows them: the
  * world's, with the placement and production orders still on their way
  * applied (Controller.inFlight). In a sound duel an order lands D ticks after
- * the tap, and the bar must not offer the same tap again meanwhile: a placed
- * building is no longer ready to place, one started is under construction,
+ * the tap, and the bar must not offer the same tap again meanwhile: a
+ * foundation laid is paid for and in the build queue (and its ground taken),
  * a unit ordered is queued and paid for, a building sold is paid back and
  * gone, an anchored Goliath packing up trains no more. Without orders in
  * flight it is the world's own state.
  */
+/** A foundation in the build queue as the bar shows it: laid in the world (id), or on its way (id null). */
+export interface PlannedBuilding {
+  id: number | null;
+  kind: BuildingKind;
+  tx: number;
+  ty: number;
+  /** 0..1 how far up it is (0: waiting its turn, or on its way). */
+  progress: number;
+  /** Going up now (the head of the queue). */
+  active: boolean;
+}
+
 export interface BuildView {
   scrap: number;
-  pending: PendingBuilding | null;
+  /** The build queue: foundations in the order they go up, those on their way last. */
+  queue: PlannedBuilding[];
   /** Units queued at producer `id` beyond its queue in the world (of `kind` only, when given; negative: cancels on their way). */
   extra(id: number, kind?: UnitKind): number;
   /** Is producer `id` gone (sold), or a Goliath packing up (it trains only anchored)? */
@@ -100,25 +113,21 @@ export interface BuildView {
 /** buildView's rules: each order as the sim would take it now (economy.ts), in the order they were given. */
 export function buildView(w: World, side: Faction, orders: readonly Command[] | null): BuildView {
   const f = w.factions[side];
-  if (!orders?.length) return { scrap: f.scrap, pending: f.pending, extra: () => 0, closed: () => false };
+  const head = constructing(w, side);
+  let queue: PlannedBuilding[] = foundationsOf(w, side).map((b) => ({
+    id: b.id, kind: b.kind, tx: b.tx, ty: b.ty, progress: buildProgress(b), active: b === head
+  }));
+  if (!orders?.length) return { scrap: f.scrap, queue, extra: () => 0, closed: () => false };
   let scrap = f.scrap;
-  let pending: PendingBuilding | null = f.pending;
   const queued: { id: number; kind: UnitKind; n: number; paid: number }[] = [];
   const closed = new Set<number>();
   for (const c of orders)
     switch (c.type) {
-      case "startBuilding":
-        if (!pending && scrap >= BUILDINGS[c.building].cost) {
-          scrap -= BUILDINGS[c.building].cost;
-          pending = { kind: c.building, remaining: BUILDINGS[c.building].buildTime * TICK_RATE, ready: false };
-        }
-        break;
-      case "cancelBuilding":
-        if (pending) scrap += BUILDINGS[pending.kind].cost;
-        pending = null;
-        break;
       case "placeBuilding":
-        if (pending?.ready) pending = null;
+        if (scrap >= BUILDINGS[c.building].cost) {
+          scrap -= BUILDINGS[c.building].cost;
+          queue.push({ id: null, kind: c.building, tx: c.tx, ty: c.ty, progress: 0, active: false });
+        }
         break;
       case "produce": {
         const cost = unitCost(w, side, c.unit);
@@ -150,6 +159,13 @@ export function buildView(w: World, side: Faction, orders: readonly Command[] | 
         // in, the cancels on the way, refunded already, out)
         const b = w.buildings.get(c.buildingId);
         if (!b || b.faction !== side || b.kind === "hq" || closed.has(b.id)) break;
+        if (b.build !== undefined) {
+          // a foundation: paid back in full
+          scrap += BUILDINGS[b.kind].cost;
+          queue = queue.filter((p) => p.id !== b.id);
+          closed.add(b.id);
+          break;
+        }
         let paid = b.queue.reduce((s, q) => s + paidFor(q), 0);
         for (let k = queued.length - 1; k >= 0; k--)
           if (queued[k]!.id === b.id) {
@@ -169,7 +185,7 @@ export function buildView(w: World, side: Faction, orders: readonly Command[] | 
     }
   return {
     scrap,
-    pending,
+    queue,
     extra: (id, kind) => queued.reduce((n, q) => n + (q.id === id && (kind === undefined || q.kind === kind) ? q.n : 0), 0),
     closed: (id) => closed.has(id)
   };
@@ -372,10 +388,8 @@ const samePoint = (a: { x?: number; y?: number }, b: { x?: number; y?: number })
 function sameOrder(a: Command, b: Command): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {
-    case "startBuilding":
-      return b.type === a.type && a.building === b.building;
     case "placeBuilding":
-      return b.type === a.type && a.tx === b.tx && a.ty === b.ty;
+      return b.type === a.type && a.building === b.building && a.tx === b.tx && a.ty === b.ty;
     case "produce":
     case "cancelProduce":
       return (b.type === "produce" || b.type === "cancelProduce") && a.buildingId === b.buildingId && a.unit === b.unit;
@@ -533,6 +547,11 @@ export class Controller {
     return this.flights && [...this.flights.map((f) => f.c), ...this.queue];
   }
 
+  /** BuildView with every order not applied yet, those not drained yet too (two quick placements in one tick). */
+  private placeView(): BuildView {
+    return buildView(this.world, PLAYER, [...(this.flights?.map((f) => f.c) ?? []), ...this.queue]);
+  }
+
   /** The player's construction, scrap and queues as the build bar shows them (BuildView). */
   view(): BuildView {
     return buildView(this.world, PLAYER, this.unapplied());
@@ -570,8 +589,6 @@ export class Controller {
       this.selectedBuilding = null;
     this.firePendingDrop();
     this.firePendingLifts();
-    if (this.placing && this.world.factions[PLAYER].pending?.kind !== this.placing)
-      this.placing = null;
     if (!this.placing) this.placeAt = null;
     this.squads.prune(this.world);
   }
@@ -692,7 +709,29 @@ export class Controller {
   /** Why the ghost can't be built where it sits, or null when it can. */
   placementProblem(): string | null {
     if (!this.placing || !this.placeAt) return null;
-    return placementBlocker(this.world, PLAYER, this.placing, this.placeAt.tx, this.placeAt.ty);
+    return this.placeProblem(this.placing, this.placeAt.tx, this.placeAt.ty);
+  }
+
+  /**
+   * Why `kind` can't be laid at (tx, ty) now: the sim's rule (placement.ts),
+   * the tech and the scrap, as the orders on their way leave them (a
+   * foundation on its way takes its ground already). Null when it can.
+   */
+  private placeProblem(kind: BuildingKind, tx: number, ty: number): string | null {
+    const view = this.placeView();
+    const blocked = buildingBlocker(this.world, PLAYER, kind);
+    if (blocked) return blocked;
+    const size = BUILDINGS[kind].size;
+    for (const p of view.queue) {
+      if (p.id !== null) continue;
+      const ps = BUILDINGS[p.kind].size;
+      if (BUILDINGS[kind].unique && p.kind === kind) return "One per side";
+      if (tx < p.tx + ps && p.tx < tx + size && ty < p.ty + ps && p.ty < ty + size) return "Blocked";
+    }
+    const why = placementBlocker(this.world, PLAYER, kind, tx, ty);
+    if (why) return why;
+    if (view.scrap < BUILDINGS[kind].cost) return "Not enough scrap";
+    return null;
   }
 
   /** Move the ghost to (tx, ty), nudged onto a valid spot a tile away if that's all it takes. */
@@ -701,20 +740,27 @@ export class Controller {
     this.placeAt = snap ? snapPlacement(this.world, PLAYER, this.placing, tx, ty) : { tx, ty };
   }
 
-  /** Build the ghost where it sits. On failure, records why in `denied`. */
-  commitPlacement(): boolean {
+  /**
+   * Lay a foundation where the ghost sits: paid now, built in turn. With
+   * `more` (Shift held), placement stays on to lay another while the scrap
+   * lasts. On failure, records why in `denied`.
+   */
+  commitPlacement(more = false): boolean {
     const kind = this.placing;
     const at = this.placeAt;
     if (!kind || !at || this.spectator) return false;
-    const why = placementBlocker(this.world, PLAYER, kind, at.tx, at.ty);
+    const why = this.placeProblem(kind, at.tx, at.ty);
     if (why) {
       this.denied = { reason: why, tx: at.tx, ty: at.ty };
       return false;
     }
     const size = BUILDINGS[kind].size;
-    this.enqueue({ type: "placeBuilding", faction: PLAYER, tx: at.tx, ty: at.ty });
-    this.placing = null;
-    this.placeAt = null;
+    this.enqueue({ type: "placeBuilding", faction: PLAYER, building: kind, tx: at.tx, ty: at.ty });
+    const again = more && !BUILDINGS[kind].unique && this.placeView().scrap >= BUILDINGS[kind].cost;
+    if (!again) {
+      this.placing = null;
+      this.placeAt = null;
+    }
     this.lastFeedback = { kind: "place", x: at.tx + size / 2, y: at.ty + size / 2 };
     return true;
   }
@@ -762,7 +808,7 @@ export class Controller {
       // one-click placement (mouse): the ghost goes where you click and builds if it can
       const size = BUILDINGS[this.placing].size;
       this.placeAt = { tx: Math.round(wx - size / 2), ty: Math.round(wy - size / 2) };
-      this.commitPlacement();
+      this.commitPlacement(toggle); // (Shift: lay another after this one)
       return;
     }
 
