@@ -786,15 +786,15 @@ export class GameScene {
       rig.zoomAround(this.clampedZoom(next), a.x, a.y);
     }
     if (this.finale) return; // the cinematic owns the camera (its pan and push-in): no keys, no momentum
-    // keyboard panning (arrows / WASD), speed in CSS px/s
+    // keyboard panning (arrow keys only: letters stay free for hotkeys), speed in CSS px/s
     const pan = (700 * delta) / 1000;
     let kx = 0;
     let ky = 0;
     const k = this.keys;
-    if (k.has("ArrowLeft") || k.has("KeyA")) kx -= 1;
-    if (k.has("ArrowRight") || k.has("KeyD")) kx += 1;
-    if (k.has("ArrowUp") || k.has("KeyW")) ky -= 1;
-    if (k.has("ArrowDown") || k.has("KeyS")) ky += 1;
+    if (k.has("ArrowLeft")) kx -= 1;
+    if (k.has("ArrowRight")) kx += 1;
+    if (k.has("ArrowUp")) ky -= 1;
+    if (k.has("ArrowDown")) ky += 1;
     if (kx !== 0 || ky !== 0) {
       this.cine?.hold();
       rig.pan(-kx * pan, -ky * pan);
@@ -1785,17 +1785,17 @@ export class GameScene {
     };
     const keydown = (e: KeyboardEvent) => {
       if (typing(e)) return;
-      // A with units selected arms an attack-move (the next left click on the map); without, it pans
+      // A with units selected arms an attack-move (the next left click on the map)
       if (e.code === "KeyA" && !e.ctrlKey && !e.metaKey && !this.finale && this.ctrl.canAttackMove()) {
         if (!e.repeat) this.ctrl.attackArmed = true;
         return;
       }
-      if (/^Arrow/.test(e.code) || ["KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) {
+      if (/^Arrow/.test(e.code)) {
         if (!e.ctrlKey && !e.metaKey) {
           this.keys.add(e.code);
           this.cine?.hold();
         }
-        if (/^Arrow/.test(e.code)) e.preventDefault();
+        e.preventDefault();
       }
       if (e.key === "Escape") {
         this.powerUi?.cancel();
