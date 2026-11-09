@@ -53,6 +53,8 @@ import { GroundGfx } from "./three/ground-gfx";
 import { Tweens } from "./three/tween";
 import { AIR_H, type P3, type View } from "./three/view";
 import { isMulti, sidesOf } from "../sim/sides";
+import { isOut } from "../sim/combat";
+import { fullscreen } from "../ui/fullscreen";
 import { SIDE_NAME } from "./side-style";
 
 /** "Rush", "Rush and Boom", "Rush, Boom and Skyforce". */
@@ -212,6 +214,8 @@ export class GameScene {
   private readonly interactive: boolean;
   /** The clock waits for the player's opener pick. */
   private holdStart = false;
+  /** The player resigned from the pause menu: once it lands, back to the main menu (no finale, no report). */
+  private leaving = false;
   private simSeconds = 0;
   private lastAlert = -1e9;
   /** Smooth-zoom target and its screen anchor point (CSS px). */
@@ -481,7 +485,9 @@ export class GameScene {
       busy: () => this.holdStart || !!this.finale,
       battleRecord: () => this.battleRecord(),
       uncharted,
-      ...(interactive && feed?.duel ? { duel: feed.duel } : {})
+      ...(interactive && feed?.duel ? { duel: feed.duel } : {}),
+      // single player against the AI: the pause menu's Resign (a duel has its own; spectators and replays none)
+      ...(!feed && !gameMode.spectator ? { resign: () => this.resign() } : {})
     });
 
     this.aware = new Awareness({
@@ -850,6 +856,12 @@ export class GameScene {
         this.feed?.afterTick(this.world, false);
       }
     }
+    // a four-player map: resigning knocks us out and the others play on, so leave now
+    if (this.leaving && !this.ended && isOut(this.world, PLAYER)) {
+      this.ended = true;
+      fullscreen.reload();
+      return;
+    }
     this.ctrl.prune();
     // an armed attack-move: crosshair cursor, until it's spent (or nothing selected could go)
     if (this.ctrl.attackArmed && !this.ctrl.canAttackMove()) this.ctrl.attackArmed = false;
@@ -912,6 +924,10 @@ export class GameScene {
       this.chronicle.finish();
       // XP, medals, stars (spectators: no-op; a duel keeps its own record, src/versus/records.ts)
       if (!this.interactive) settleCareer(this.world, PLAYER);
+      if (this.leaving) {
+        fullscreen.reload();
+        return;
+      }
       this.playFinale(() => {
         // at the flash the score resolves into a fanfare / lament; the SFX jingle covers music-off
         // (Robot Love: a draw resolves on its own sweet sting; its chime has already rung for music-off)
@@ -969,6 +985,28 @@ export class GameScene {
         }
       ];
     this.hud.showEnd(null, opts);
+  }
+
+  /**
+   * Single player: the pause menu's Resign. The resign command lands on the
+   * next tick (the other side wins, or on a four-player map we're out), the
+   * career counts the defeat, and the page goes back to the main menu. Before
+   * the opening cards are picked nothing has been played: straight to the menu.
+   */
+  private resign(): void {
+    if (this.ended || this.leaving) return;
+    this.leaving = true;
+    if (this.holdStart) {
+      this.ended = true;
+      fullscreen.reload();
+      return;
+    }
+    this.powerUi?.cancel();
+    this.ctrl.placing = null;
+    this.ctrl.clearSelection();
+    this.ctrl.paused = false;
+    this.ctrl.enqueue({ type: "resign", faction: PLAYER });
+    this.ctrl.locked = true;
   }
 
   /** How a duel ended with no result (null: it hasn't, or it was decided). */
@@ -1803,9 +1841,18 @@ export class GameScene {
         e.preventDefault();
       }
       if (e.key === "Escape") {
-        this.powerUi?.cancel();
-        this.ctrl.placing = null;
-        this.ctrl.clearSelection();
+        // backs out one step: an armed calldown, placement or attack-move first, then the
+        // selection; with nothing to back out of it opens (or closes) the pause menu
+        const c = this.ctrl;
+        const armed = !!this.powerUi?.targeting || c.placing !== null || c.attackArmed;
+        const selected = c.selectedUnits.size > 0 || c.selectedBuilding !== null;
+        if (c.paused) this.hud.togglePause();
+        else if (armed) {
+          this.powerUi?.cancel();
+          c.placing = null;
+          c.attackArmed = false;
+        } else if (selected) c.clearSelection();
+        else if (!this.finale && !this.holdStart && !e.repeat) this.hud.togglePause();
         return;
       }
       if (this.finale || e.repeat) return; // (the cinematic: no zoom, squads or jumps)
