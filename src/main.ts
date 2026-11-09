@@ -24,6 +24,7 @@ import { openMapPreview } from "./ui/map-preview";
 import type * as DuelLobby from "./versus/lobby";
 import type { VersusFeed } from "./versus/feed";
 import type * as FfaLobby from "./ffa/lobby";
+import { ONLINE_PLAY } from "./net/relay-config";
 import type { FfaFeed } from "./ffa/feed";
 import { aiStrategy } from "./game/meta";
 
@@ -262,14 +263,15 @@ function showMenu(linkedMap?: string | null): void {
   // context made while it is play-and-record can take its rate from a snapshot of 16 kHz, src/link/rig.ts "The
   // rate"). The menu's sound waits for the reconnect tap. (A practice link opens no rig and no guard, so no
   // link mode.)
-  const duelRematch = token === DUEL_REMATCH;
-  const duelOnlineRematch = duelRematch && onlineRematch();
+  // (a build without online play: an online rematch has nowhere to meet, so none)
+  const duelOnlineRematch = token === DUEL_REMATCH && onlineRematch();
+  const duelRematch = token === DUEL_REMATCH && (ONLINE_PLAY || !duelOnlineRematch);
   if (duelRematch && !duelPractice && !duelOnlineRematch) sfx.linkMode = true;
   // an online duel's invite link (not over a rematch, which has its own room)
-  const invite = duelRematch ? null : inviteCode();
+  const invite = duelRematch || !ONLINE_PLAY ? null : inviteCode();
   // a four-player battle's invite link, or the host's rematch (its new lobby, with the same code)
-  const ffaJoin = duelRematch ? null : ffaInvite();
-  const ffaRematch = token === FFA_REMATCH;
+  const ffaJoin = duelRematch || !ONLINE_PLAY ? null : ffaInvite();
+  const ffaRematch = ONLINE_PLAY && token === FFA_REMATCH;
   // ?map=<id> (a shared random map, or any built-in): preselect it and keep it as the pick
   if (linkedMap && isKnownMapId(linkedMap)) {
     gameMode.mapId = linkedMap;
@@ -396,6 +398,8 @@ function showMenu(linkedMap?: string | null): void {
   const duelBtn = menu.querySelector<HTMLButtonElement>("#play-duel")!;
   const onlineBtn = menu.querySelector<HTMLButtonElement>("#play-online")!;
   duelBtn.hidden = !duelable;
+  // a build without a relay (src/net/relay-config.ts) has no online play
+  onlineBtn.hidden = !ONLINE_PLAY;
   let duel: typeof DuelLobby | null = null;
   let duelBroken = false;
   let duelLoaded = false;
@@ -556,6 +560,8 @@ function showMenu(linkedMap?: string | null): void {
           : "Mine scrap. Build your swarm. Destroy the enemy HQ and its Goliaths.";
     // a four-player map: no sound duel (two phones only), and online seats up to four
     duelBtn.hidden = !duelable || four;
+    // (no online play and no sound duel here: nothing for the row to offer)
+    if (!ONLINE_PLAY && duelBtn.hidden) duelRow.hidden = true;
     onlineBtn.textContent = four ? "🌐 Battle friends online (up to 4)" : "🌐 Duel a friend online";
     const best = menu.querySelector<HTMLElement>("#lsbest")!;
     best.hidden = !survival;
