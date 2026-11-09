@@ -1,3 +1,5 @@
+import { RELAY_URL } from "./relay-config";
+
 /**
  * RelaySocket: one seat of a battledrones-relay room (relay/README.md), as a
  * WebSocket that comes back by itself. The relay pairs two sockets at
@@ -27,8 +29,8 @@
 /** The relay's two seats of a room. */
 export type RelayRole = "host" | "guest";
 
-/** The deployed relay (relay/fly.toml). */
-export const RELAY_URL = "wss://battledrones-relay.fly.dev";
+/** The relay this build uses (relay-config.ts). */
+export { RELAY_URL };
 
 /** Room codes: Crockford base32 (no I, L, O, U), as the relay accepts them. */
 export const ROOM_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
