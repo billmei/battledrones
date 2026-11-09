@@ -316,7 +316,11 @@ function tickProjectiles(w: World, incidents: Incident[]): void {
   w.projectiles = keep;
 }
 
-/** Menders: repair the most damaged friendly nearby. */
+/**
+ * Menders: repair the most damaged friendly nearby. Idle or attack-moving
+ * they fly to it and hold there while they work; on a plain move they keep
+ * flying, repairing only what they pass within range.
+ */
 function tickHealer(w: World, u: Unit, engaged: Set<number>): void {
   const stats = UNITS[u.kind];
   const reach = stats.range + COMBAT.acquireBonus + (u.order.type === "idle" ? 2.5 : 0);
@@ -346,15 +350,20 @@ function tickHealer(w: World, u: Unit, engaged: Set<number>): void {
     }
   }
   if (!best) return;
+  // a plain move comes first: it repairs what it passes in range but never stops or
+  // turns aside for it; idle, or attack-moving, it goes to the closest repair and holds there
+  const moving = u.order.type === "move";
   if (best.d > stats.range) {
-    if (u.order.type === "idle") {
+    if (u.order.type === "idle" || u.order.type === "attackMove") {
       moveUnitToward(w, u, best.x, best.y);
       engaged.add(u.id);
     }
     return;
   }
-  engaged.add(u.id);
-  u.aim = atan2(best.x - u.x, -(best.y - u.y));
+  if (!moving) {
+    engaged.add(u.id);
+    u.aim = atan2(best.x - u.x, -(best.y - u.y));
+  }
   const amount = (stats.heal ?? 0) / TICK_RATE;
   if (best.unit) {
     const o = w.units.get(best.id)!;

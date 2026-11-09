@@ -136,11 +136,19 @@ describe("AI veterans fall back when badly hurt", () => {
     const w = createMapWorld("frostbite", { seed: 7 });
     const red = createAiState("ironclad", "normal", 3);
     const blue = createAiState("rush", "normal", 4);
-    for (let i = 0; i < 6 * 60 * TICK_RATE && !w.winner; i++)
+    /** The tick each veteran was last found newly wounded. */
+    const woundedAt = new Map<number, number>();
+    for (let i = 0; i < 6 * 60 * TICK_RATE && !w.winner; i++) {
       step(w, [...tickAi(w, "red", red), ...tickAi(w, "blue", blue)]);
-    // no veteran sits wounded far from home without orders to retreat
+      for (const u of w.units.values())
+        if (!isWoundedVeteran(u)) woundedAt.delete(u.id);
+        else if (!woundedAt.has(u.id)) woundedAt.set(u.id, w.tick);
+    }
+    // no veteran sits wounded far from home without orders to retreat (one hurt within
+    // the last decision interval, or on the winning tick, hasn't had its AI's turn yet)
+    const grace = 2 * TICK_RATE + 1; // (Normal decides every 2 s)
     for (const u of w.units.values()) {
-      if (!isWoundedVeteran(u)) continue;
+      if (!isWoundedVeteran(u) || w.tick - woundedAt.get(u.id)! < grace) continue;
       const home = buildingCenter(hqOf(w, u.faction)!);
       const far = dist(u.x, u.y, home.x, home.y) > 12;
       if (far) expect(u.order.type).toBe("move");
