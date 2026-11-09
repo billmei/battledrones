@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
 import { voiceKey } from "../src/game/voice-lines";
 import { announcerLines } from "../tools/voice/announcer-lines";
 import { SFX } from "../tools/sfx/sfx-list";
+
+// (node:fs without Node's type declarations: the project only types the browser)
+const { existsSync, readFileSync }: { existsSync(path: string): boolean; readFileSync(path: string, enc: "utf8"): string } =
+  await import(/* @vite-ignore */ ["node", "fs"].join(":"));
 
 const manifest = (dir: string): Record<string, string | string[]> =>
   JSON.parse(readFileSync(`public/assets/${dir}/manifest.json`, "utf8")) as Record<string, string | string[]>;
