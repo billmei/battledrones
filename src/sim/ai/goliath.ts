@@ -475,7 +475,7 @@ export function wantGantry(
     m.gantriesLost++;
     m.gantryFail = w.tick;
   }
-  if (f.pending?.kind === "gantry" || m.gantriesLost >= GOLIATH_AI.gantries) return false;
+  if (m.gantriesLost >= GOLIATH_AI.gantries) return false;
   if (w.tick - m.gantryFail < GOLIATH_AI.gantryRetry * TICK_RATE) return false;
   let from = GOLIATH_AI.gantryFrom[s.strategy.name] * GOLIATH_AI.gantryPace[s.difficulty];
   if (!Number.isFinite(from)) return false;

@@ -60,12 +60,10 @@ describe("Nomads", () => {
         expect(canPlaceBuilding(w, "blue", "hq", tx, ty)).toBe(false);
       }
     expect(placed).toBeGreaterThan(0);
-    run(w, 1, [{ type: "startBuilding", faction: "blue", building: "fab-plant" }]);
-    run(w, 10 * TICK_RATE + 2);
     outer: for (let ty = Math.floor(g.y) - 5; ty <= g.y + 5; ty++)
       for (let tx = Math.floor(g.x) - 5; tx <= g.x + 5; tx++)
         if (canPlaceBuilding(w, "blue", "fab-plant", tx, ty)) {
-          run(w, 1, [{ type: "placeBuilding", faction: "blue", tx, ty }]);
+          run(w, 1, [{ type: "placeBuilding", faction: "blue", building: "fab-plant", tx, ty }]);
           break outer;
         }
     const fab = [...w.buildings.values()].find((b) => b.kind === "fab-plant" && b.faction === "blue");

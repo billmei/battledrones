@@ -393,9 +393,8 @@ then by type:
   attack:                        units, id(targetId)
   stop, anchor, packUp:          units
   produce, cancelProduce:        id(buildingId), unitKind 5
-  startBuilding:                 buildingKind 4
-  cancelBuilding, callWave:      –
-  placeBuilding:                 tx, ty     (ceil(log2(size)) bits each)
+  callWave:                      –
+  placeBuilding:                 buildingKind 4, tx, ty     (ceil(log2(size)) bits each)
   sell:                          id(buildingId)
   rally:                         id(buildingId), x, y
   calldown:                      power 2, x, y

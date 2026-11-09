@@ -176,7 +176,7 @@ describe("a red Controller", () => {
     c.stopSelected();
     // and build a Turret beside the HQ
     const hq = hqOf(w, "red")!;
-    w.factions.red.pending = { kind: "turret", remaining: 0, ready: true };
+    w.factions.red.scrap = Math.max(w.factions.red.scrap, 1000);
     c.placing = "turret";
     let spot: { tx: number; ty: number } | null = null;
     for (let r = 2; r < 8 && !spot; r++)
@@ -193,7 +193,6 @@ describe("a red Controller", () => {
     // and the sim carries them out for red
     step(w, composeTick(PLAYER, cmds, []));
     expect([...w.buildings.values()].some((b) => b.faction === "red" && b.kind === "turret")).toBe(true);
-    expect(w.factions.red.pending).toBeNull();
   });
 });
 

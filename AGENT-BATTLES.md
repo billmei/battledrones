@@ -860,12 +860,13 @@ Where the build differs from, or adds to, the text above:
   `seat:<name>` (an outside agent; the name labels the record).
 - **The opener round.** Round 0 deals the cards: `orders([{"opener":
   "blitz"}])`, then `end_round`. A seat that doesn't pick gets Industry.
-- **Buildings.** `build` starts construction (one at a time, paid up front,
-  the C&C rule) and the arena places it the tick it's ready: at `"at"`, or
-  where the built-in commander would put it (production by the HQ, defences
-  toward the enemy, a depot by a field no drop-off serves), searched in the
-  side's own frame. If the chosen spot is blocked by then, it goes to the
-  nearest legal one and the agent hears why.
+- **Buildings.** `build` lays a foundation at once, paid up front: at
+  `"at"`, or where the built-in commander would put it (production by the
+  HQ, defences toward the enemy, a depot by a field no drop-off serves),
+  searched in the side's own frame. If a unit stands on the chosen spot, it
+  goes to the nearest legal one and the agent hears why. Foundations go up
+  in place one at a time, in the order they were laid; `cancel: "building"`
+  calls off the last one laid (refunded in full).
 - **Ids in orders** are written `"#97"`, as the observation shows them. The
   first battle's reference wrote `{"move": [12, 34], …}`, and the models put
   tile coordinates in unit lists (*First battles*).

@@ -39,7 +39,6 @@ export function worldHash(w: World): string {
   for (const f of sidesOf(w)) {
     h.num(w.factions[f].scrap);
     h.num(w.powers.meter[f]);
-    h.num(w.factions[f].pending?.remaining ?? -1);
   }
   for (const id of [...w.units.keys()].sort((a, b) => a - b)) {
     const u = w.units.get(id)!;
@@ -57,6 +56,7 @@ export function worldHash(w: World): string {
     h.num(b.hp);
     h.num(b.queue.length);
     h.num(b.queue[0]?.remaining ?? -1);
+    h.num(b.build ?? -1);
   }
   h.num(w.projectiles.length);
   h.num(w.wrecks.length);

@@ -551,14 +551,14 @@ await goesOn("the match goes on", 2 * D + 1);
 // orders: a build bar tap on each phone (real taps, once it has the scrap), and a move through the Controller
 const btn = (p, name) => p.page.locator(".bb", { has: p.page.locator(".nm", { hasText: new RegExp(`^${name}$`) }) });
 const rich = await run(30000, async () =>
-  (await both((p) => p.page.evaluate(() => window.__bd.world.factions[window.__bd.player].scrap >= 300 && !window.__bd.world.factions[window.__bd.player].pending))).every(Boolean)
+  (await both((p) => p.page.evaluate(() => window.__bd.world.factions[window.__bd.player].scrap >= 300))).every(Boolean)
 );
 check(rich, "no scrap for a Fab Plant after 30 s");
 /** Each side's Fab Plants, built or under construction (an opener may have brought one). */
 const fabs = (p) =>
   p.page.evaluate(() => {
     const w = window.__bd.world;
-    const n = (f) => [...w.buildings.values()].filter((b) => b.faction === f && b.kind === "fab-plant").length + (w.factions[f].pending?.kind === "fab-plant" ? 1 : 0);
+    const n = (f) => [...w.buildings.values()].filter((b) => b.faction === f && b.kind === "fab-plant").length;
     return { blue: n("blue"), red: n("red") };
   });
 /** Where a page's own orders are: the Controller's queue and in flight, the build slot, toasts, and the lockstep's queue. */
@@ -572,7 +572,7 @@ const orders = (p) =>
         tick: w.tick,
         queue: (ctrl.queue ?? []).map((c) => c.type),
         inFlight: (ctrl.inFlight ?? []).map((c) => c.type),
-        pending: w.factions[me].pending?.kind ?? null,
+        laid: [...w.buildings.values()].some((b) => b.faction === me && b.kind === "fab-plant" && b.build !== undefined),
         scrap: Math.round(w.factions[me].scrap),
         card: card ? !card.hidden : null,
         toasts: [...document.querySelectorAll(".toast .tx")].map((t) => t.textContent),
@@ -583,9 +583,23 @@ const orders = (p) =>
 const fabsBefore = await fabs(phones.host);
 for (const p of [phones.host, phones.guest]) {
   await btn(p, "Fab").dispatchEvent("click");
-  // (on its way: in the Controller's queue until the next step drains it, then in flight, or already the build slot's)
+  // the tap brings up the ghost: lay the foundation on a free spot by the HQ
+  const placed = await p.page.evaluate(() => {
+    const { world: w, ctrl, player: me } = window.__bd;
+    if (ctrl.placing !== "fab-plant") return false;
+    const hq = [...w.buildings.values()].find((b) => b.faction === me && b.kind === "hq");
+    for (let r = 1; r < 8; r++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++)
+          if (window.__bd.canPlace(hq.tx + dx, hq.ty + dy)) {
+            ctrl.placeAt = { tx: hq.tx + dx, ty: hq.ty + dy };
+            return ctrl.commitPlacement();
+          }
+    return false;
+  });
+  // (on its way: in the Controller's queue until the next step drains it, then in flight, or already laid)
   const o = await orders(p);
-  check(o.queue?.includes("startBuilding") || o.inFlight?.includes("startBuilding") || o.pending === "fab-plant", `the ${p.name}'s Fab tap made no order: ${JSON.stringify(o)}`);
+  check(placed && (o.queue?.includes("placeBuilding") || o.inFlight?.includes("placeBuilding") || o.laid), `the ${p.name}'s Fab tap made no order: ${JSON.stringify(o)}`);
 }
 const moved = {};
 for (const p of [phones.host, phones.guest])
@@ -731,7 +745,7 @@ const synced = await run(15000, async () => (await both((p) => text(p, ".duel-sy
   // both sides' orders as stepped: the Fab taps, and the moves with the units they named
   const cmds = recs[0].turns.flatMap(([, , list]) => list);
   for (const f of ["blue", "red"]) {
-    check(cmds.some((c) => c.faction === f && c.type === "startBuilding" && c.building === "fab-plant"), `${f}'s Fab tap isn't in the saved battle`);
+    check(cmds.some((c) => c.faction === f && c.type === "placeBuilding" && c.building === "fab-plant"), `${f}'s Fab tap isn't in the saved battle`);
     const ids = moved[f === "blue" ? "host" : "guest"];
     const sent = cmds.filter((c) => c.faction === f && c.type === "move").flatMap((c) => c.unitIds);
     check(ids.every((id) => sent.includes(id)), `${f}'s move isn't in the saved battle (${JSON.stringify(ids)})`);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILDINGS, ECONOMY, TICK_RATE, UNITS } from "../src/sim/balance";
-import { canPlaceBuilding } from "../src/sim/economy";
+import { buildingBlocker, canPlaceBuilding } from "../src/sim/economy";
 import { MAPS, createMapWorld } from "../src/sim/maps";
 import { findPath } from "../src/sim/movement";
 import { step } from "../src/sim/sim";
@@ -80,13 +80,11 @@ describe("tech tree and buildings", () => {
     const hq = spawnBuilding(w, "hq", "blue", 2, 2);
     void hq;
     w.factions.blue.scrap = 5000;
-    step(w, [{ type: "startBuilding", faction: "blue", building: "tech-lab" }]);
-    expect(w.factions.blue.pending).toBeNull();
+    expect(buildingBlocker(w, "blue", "tech-lab")).toMatch(/Needs/);
     const fab = spawnBuilding(w, "fab-plant", "blue", 8, 2);
     step(w, [{ type: "produce", faction: "blue", buildingId: fab.id, unit: "mastodon" }]);
     expect(fab.queue).toHaveLength(0);
-    step(w, [{ type: "startBuilding", faction: "blue", building: "tech-lab" }]);
-    expect(w.factions.blue.pending?.kind).toBe("tech-lab");
+    expect(buildingBlocker(w, "blue", "tech-lab")).toBeNull();
     spawnBuilding(w, "tech-lab", "blue", 12, 2);
     step(w, [{ type: "produce", faction: "blue", buildingId: fab.id, unit: "mastodon" }]);
     expect(fab.queue).toHaveLength(1);

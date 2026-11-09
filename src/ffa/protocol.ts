@@ -136,7 +136,7 @@ export type GuestMsg =
 // ------------------------------------------------------------ validation ---
 
 const COMMAND_TYPES = new Set<Command["type"]>([
-  "move", "attackMove", "attack", "harvest", "stop", "produce", "cancelProduce", "startBuilding", "cancelBuilding",
+  "move", "attackMove", "attack", "harvest", "stop", "produce", "cancelProduce",
   "placeBuilding", "sell", "rally", "calldown", "board", "unload", "anchor", "packUp", "lift", "resign"
 ]);
 const UNIT_KINDS = new Set<string>([
@@ -176,13 +176,12 @@ export function sanitizeCommand(raw: unknown, side: Faction): Command | null {
     case "produce":
     case "cancelProduce":
       return int(c.buildingId) && UNIT_KINDS.has(c.unit as string) ? { type, ...base, buildingId: c.buildingId, unit: c.unit as UnitKind } : null;
-    case "startBuilding":
-      return BUILDING_KINDS.has(c.building as string) ? { type, ...base, building: c.building as BuildingKind } : null;
-    case "cancelBuilding":
     case "resign":
       return { type, ...base };
     case "placeBuilding":
-      return int(c.tx) && int(c.ty) ? { type, ...base, tx: c.tx, ty: c.ty } : null;
+      return BUILDING_KINDS.has(c.building as string) && int(c.tx) && int(c.ty)
+        ? { type, ...base, building: c.building as BuildingKind, tx: c.tx, ty: c.ty }
+        : null;
     case "sell":
       return int(c.buildingId) ? { type, ...base, buildingId: c.buildingId } : null;
     case "rally":

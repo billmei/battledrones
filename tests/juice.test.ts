@@ -1,3 +1,4 @@
+import { canPlaceBuilding } from "../src/sim/economy";
 import { describe, expect, it } from "vitest";
 import {
   DepositPops,
@@ -229,7 +230,10 @@ describe("economy pops", () => {
     const w = createMapWorld("riverlands");
     const watch = new SpendWatch();
     watch.update(w.factions.blue.scrap);
-    step(w, [{ type: "startBuilding", faction: "blue", building: "fab-plant" }]);
+    const hq = [...w.buildings.values()].find((b) => b.faction === "blue" && b.kind === "hq")!;
+    let at: { tx: number; ty: number } | null = null;
+    for (let dy = -6; dy <= 6 && !at; dy++) for (let dx = -6; dx <= 6 && !at; dx++) if (canPlaceBuilding(w, "blue", "fab-plant", hq.tx + dx, hq.ty + dy)) at = { tx: hq.tx + dx, ty: hq.ty + dy };
+    step(w, [{ type: "placeBuilding", faction: "blue", building: "fab-plant", ...at! }]);
     expect(watch.update(w.factions.blue.scrap)).toBeGreaterThanOrEqual(JUICE.spendThreshold);
   });
 });

@@ -1,6 +1,6 @@
 import { BUILDINGS, ECONOMY, GOLIATH, OBJECTIVES, UNITS } from "../balance";
 import { TICK_RATE } from "../balance";
-import { buildingBlocker, canPlaceBuilding, nearestReachableResource, nearestScrapTile, unitBlocker } from "../economy";
+import { buildingBlocker, canPlaceBuilding, isBuilt, techMissing, nearestReachableResource, nearestScrapTile, unitBlocker } from "../economy";
 import { isVisible, knownBuildings } from "../fog";
 import { isOut } from "../combat";
 import { QUARTER, isMulti, rivalsOf, turnPoint } from "../sides";
@@ -394,7 +394,11 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   const cmds: Command[] = reflex;
   const f = w.factions[faction];
   const mine = [...w.units.values()].filter((u) => u.faction === faction);
+  // (foundations count toward what the base has, not toward what it can do yet)
   const myBuildings = [...w.buildings.values()].filter((b) => b.faction === faction);
+  const standing = myBuildings.filter(isBuilt);
+  /** A foundation going up, or waiting its turn: the AI lays one at a time, as it always built. */
+  const laying = myBuildings.length > standing.length;
   const harvesters = mine.filter((u) => u.kind === "harvester");
   // (island maps: squads holding an island relay, or stranded on one, are the airlift's — ai/airlift.ts —
   // never counted toward a wave they can't walk to)
@@ -406,10 +410,10 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   const goliaths = goliathsOf(w, faction).sort((a, b) => a.id - b.id);
   // (squads training at an anchored Goliath count as queued too)
   const queued = (k: UnitKind) =>
-    myBuildings.reduce((n, b) => n + b.queue.filter((q) => q.kind === k).length, 0) +
+    standing.reduce((n, b) => n + b.queue.filter((q) => q.kind === k).length, 0) +
     goliaths.reduce((n, g) => n + g.goliath!.queue.filter((q) => q.kind === k).length, 0);
   const have = (k: UnitKind) => count(k) + queued(k);
-  const has = (k: BuildingKind) => myBuildings.some((b) => b.kind === k);
+  const has = (k: BuildingKind) => standing.some((b) => b.kind === k);
 
   const seen = seenEnemies(w, faction); // through fog and Sniper concealment alike
   observeEnemy(s, seen, enemyGantryBuilds(w, faction).length);
@@ -470,33 +474,31 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   };
   const wanted = nextBuilding(w, faction, myBuildings, s, gantryWanted, hq ? undefined : fits);
   if (roomless) noteNoRoom(w, s); // (the base Goliath may move on to build more: ai/goliath.ts)
-  if (f.pending?.ready) {
-    const kind = f.pending.kind;
+  /** Lay a foundation for `kind`: where it goes, or nothing (and a note why) with nowhere to put it. */
+  const lay = (kind: BuildingKind) => {
     // an outpost goes up in its Goliath's ring (ai/goliath.ts)
     let spot: { tx: number; ty: number } | null = outpostSpot(w, faction, s, kind, enemyHqPos);
     if (!spot && kind === "depot" && hq) {
       const site = depotSite(w, faction, hqC);
       spot = site ? site.spot : findPlacementSpot(w, faction, kind, guardPoint);
     } else if (!spot) spot = findPlacementSpot(w, faction, kind, anchorFor(kind));
-    if (spot) cmds.push({ type: "placeBuilding", faction, tx: spot.tx, ty: spot.ty });
+    if (spot) cmds.push({ type: "placeBuilding", faction, building: kind, tx: spot.tx, ty: spot.ty });
     else {
-      cmds.push({ type: "cancelBuilding", faction }); // nowhere to put it
       if (kind === "gantry") noteGantryFailed(w, s);
       if (!hq) noteNoRoom(w, s);
     }
-  } else if (!f.pending) {
+  };
+  // a foundation whose prerequisite was lost while it waited never goes up: called off (refunded)
+  for (const b of myBuildings) if (b.build !== undefined && techMissing(w, b)) cmds.push({ type: "sell", faction, buildingId: b.id });
+  if (!laying) {
     // an outpost for a dug-in Goliath first (cheap, and few), else the base's next building
     const outpost = outpostWanted(w, faction, s, f.scrap);
-    if (outpost) cmds.push({ type: "startBuilding", faction, building: outpost });
-    else if (wanted && f.scrap >= BUILDINGS[wanted].cost) {
-      // (a Gantry only with room for it: else it would go up only to be refunded)
-      if (wanted === "gantry" && hq && !fits("gantry")) noteGantryFailed(w, s);
-      else cmds.push({ type: "startBuilding", faction, building: wanted });
-    }
+    if (outpost) lay(outpost);
+    else if (wanted && f.scrap >= BUILDINGS[wanted].cost) lay(wanted);
   }
 
   // --- economy: keep the harvester count mining ---------------------------
-  const depots = myBuildings.filter((b) => b.kind === "depot").length;
+  const depots = standing.filter((b) => b.kind === "depot").length;
   // (island maps: only fields on our side of the bridges; none left, no more harvesters —
   // and no search: a search for a field that isn't there floods the whole landmass)
   const fieldsLeft = !islandMap || ownFieldLeft(w, hqC, ourSide);
@@ -530,10 +532,10 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   // --- production: adaptive counters to the enemy composition -------------
   // reserve scrap while an important building is still wanted
   const reserve =
-    f.pending || wanted === null ? 0 : wanted === "turret" || wanted === "radar" ? 0 : Math.min(400, BUILDINGS[wanted].cost);
+    laying || wanted === null ? 0 : wanted === "turret" || wanted === "radar" ? 0 : Math.min(400, BUILDINGS[wanted].cost);
   // the Goliath savings: a share of income set aside while the Gantry waits for one (ai/goliath.ts)
-  const gantry = myBuildings.find((b) => b.kind === "gantry") ?? null;
-  const fundCtx = { gantry: !!gantry || f.pending?.kind === "gantry", armyValue, threatened };
+  const gantry = standing.find((b) => b.kind === "gantry") ?? null;
+  const fundCtx = { gantry: myBuildings.some((b) => b.kind === "gantry"), armyValue, threatened };
   const fund = goliathFund(w, faction, s, fundCtx);
   let spendable = f.scrap - reserve - fund;
   const liftHeld = liftCondors(w, faction, s);
@@ -582,7 +584,7 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   /** Robot infantry for the Bays' queues: everything (`liftOnly` false), or only the squads the airlift is waiting for. */
   const runBays = (liftOnly = false) => {
     let liftWants = airlifts ? airliftSquadsWanted(s) - INFANTRY_KINDS.reduce((n, k) => n + queued(k), 0) : 0;
-    for (const bay of myBuildings.filter((b) => b.kind === "assembly-bay")) {
+    for (const bay of standing.filter((b) => b.kind === "assembly-bay")) {
       if (bay.queue.length >= depth || (liftOnly && liftWants <= 0)) continue;
       const r = rand(s);
       const wantRockets = Math.max(
@@ -612,7 +614,7 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
     ? (["stinger", "flak-crawler", "mortar", "mastodon", "lancer"] as const).reduce((v, k) => v + have(k) * UNITS[k].cost, 0)
     : 0;
   const runFabs = () => {
-    for (const fab of myBuildings.filter((b) => b.kind === "fab-plant")) {
+    for (const fab of standing.filter((b) => b.kind === "fab-plant")) {
       if (fab.queue.length >= depth) continue;
       let kind: UnitKind = "stinger";
       const r = rand(s);
@@ -634,7 +636,7 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
     }
   };
   const runPads = () => {
-    for (const pad of myBuildings.filter((b) => b.kind === "airpad")) {
+    for (const pad of standing.filter((b) => b.kind === "airpad")) {
       if (pad.queue.length >= depth) continue;
       // Air War mutator (no Fab Plants): play the air-only plan, and bring bombers for the defences
       const airWar = bannedBy(w, "fab-plant", faction) !== null; // (or an op's "air only")
@@ -669,7 +671,7 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
         kind = "mender";
       else if (tech && (airOnly ? rand(s) < (airWar && enemyDefenses > 0 ? 0.55 : 0.4) : rand(s) < 0.25 + s.seenHeavy * 0.08))
         kind = "hornet";
-      else if (s.strategy.heavy && !airlifts && s.seenHeavy < 2 && fabCount(myBuildings) > 0 && rand(s) < 0.5) continue; // save for tanks (not with islands to clear)
+      else if (s.strategy.heavy && !airlifts && s.seenHeavy < 2 && fabCount(standing) > 0 && rand(s) < 0.5) continue; // save for tanks (not with islands to clear)
       else kind = "wasp";
       produce(pad, kind);
     }
@@ -690,12 +692,12 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
 
   // --- expand production when scrap piles up despite full queues ---------
   // (Infantry War: the Bays are the factories; the Airpad only makes Condors, Scouts and Menders)
-  const producers = myBuildings.filter((b) =>
+  const producers = standing.filter((b) =>
     infantryWar ? b.kind === "assembly-bay" : b.kind === "fab-plant" || b.kind === "airpad"
   );
   if (
     f.scrap > 1000 &&
-    !f.pending &&
+    !laying &&
     wanted === null &&
     s.extraProduction < 3 &&
     producers.length > 0 &&
@@ -745,7 +747,7 @@ export function tickAi(w: World, faction: Faction, s: AiState): Command[] {
   cmds.push(...veteranRetreats(faction, army, hqC, used, w));
   // --- 0b. Menders follow whoever needs them, and come home when nobody does
   // (ai/menders.ts; no wave, guard post or sweep takes them after this; our Goliaths first)
-  cmds.push(...planMenders(faction, army, myBuildings, used, hqC, enemyHqPos, goliaths, w));
+  cmds.push(...planMenders(faction, army, standing, used, hqC, enemyHqPos, goliaths, w));
 
   // --- 1. threat response: answer unengaged intruders with counters -------
   for (const t of threats.slice(0, 3)) {

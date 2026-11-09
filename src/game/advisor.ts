@@ -160,8 +160,7 @@ function ownValue(w: World, faction: Faction, kind: UnitKind | BuildingKind): nu
       if (b.faction === faction) for (const q of b.queue) if (q.kind === kind) n++;
     return n * UNITS[kind as UnitKind].cost;
   }
-  for (const b of w.buildings.values()) if (b.faction === faction && b.kind === kind) n++;
-  if (w.factions[faction].pending?.kind === kind) n++;
+  for (const b of w.buildings.values()) if (b.faction === faction && b.kind === kind) n++; // (foundations too: paid for)
   return n * BUILDINGS[kind as BuildingKind].cost;
 }
 

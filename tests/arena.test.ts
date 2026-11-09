@@ -45,13 +45,12 @@ describe("arena observations show only what the side can see", () => {
       for (const ticks of [900, 2400]) {
         const w = aiWorld(def.id, ticks);
         for (const side of SIDES) {
-          const enemy = side === "blue" ? "red" : "blue";
           const fr = frameOf(w, side);
           const obs = observeState(w, side);
           // every enemy unit listed is one the side sees now, where it is
           for (const e of obs.enemies) {
             const u = w.units.get(e.id)!;
-            expect(u.faction).toBe(enemy);
+            expect(u.faction).not.toBe(side); // (a four-corner map: any rival)
             expect(unitSeenBy(w, side, u)).toBe(true);
             expect([e.x, e.y]).toEqual(fr.tile(u.x, u.y));
           }
@@ -114,8 +113,8 @@ describe("each side's own frame", () => {
     // a 1x1 turret's top-left tile: (W-1-x, H-1-y) for red
     const tb = parseOrders(structuredClone(w), "blue", [{ build: "turret", at: [9, 46] }], "play");
     const tr = parseOrders(structuredClone(w), "red", [{ build: "turret", at: [9, 46] }], "play");
-    expect(tb.build?.at).toEqual([9, 46]);
-    expect(tr.build?.at).toEqual([W - 10, H - 47]);
+    expect(tb.commands[0]).toMatchObject({ type: "placeBuilding", tx: 9, ty: 46 });
+    expect(tr.commands[0]).toMatchObject({ type: "placeBuilding", tx: W - 10, ty: H - 47 });
     expect(tr.results[0]).toMatch(/ok/);
   });
 
@@ -185,14 +184,16 @@ describe("orders", () => {
     expect(r({ attack: "army", target: hidden.id })).toMatch(/not in sight/);
   });
 
-  it("build starts construction and the arena places it when ready", () => {
+  it("build lays a foundation at once, built in place", () => {
     const a = new Arena({ map: "riverlands", seed: 9, seats: { blue: parseSeat("agent"), red: parseSeat("agent") }, maxTicks: 3000 });
     a.orders("blue", [{ opener: "industry" }]);
     a.resolve();
-    expect(a.orders("blue", [{ build: "turret", at: [10, 44] }])).toMatch(/ok: started building a turret/);
-    for (let i = 0; i < 3; i++) a.resolve();
+    expect(a.orders("blue", [{ build: "turret", at: [10, 44] }])).toMatch(/ok: laid a turret foundation at 10,44/);
+    a.resolve();
     const turret = [...a.w.buildings.values()].find((b) => b.faction === "blue" && b.kind === "turret");
     expect(turret && [turret.tx, turret.ty]).toEqual([10, 44]);
+    for (let i = 0; i < 3; i++) a.resolve();
+    expect(turret!.build).toBeUndefined();
     // without a spot: placed somewhere sensible, near the base
     a.orders("blue", [{ build: "airpad" }]);
     for (let i = 0; i < 4; i++) a.resolve();

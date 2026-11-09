@@ -128,14 +128,23 @@ function anchoredAt(w: World, faction: Faction, x: number, y: number): Unit {
   return g;
 }
 
-/** Place `kind` at (tx, ty) as if its construction just finished. Returns the new building, or null if refused. */
+/** A free spot for `kind` by `faction`'s base (scanning from the top left). */
+function spotFor(w: World, faction: Faction, kind: BuildingKind): { tx: number; ty: number } {
+  for (let ty = 0; ty < w.height; ty++) for (let tx = 0; tx < w.width; tx++) if (canPlaceBuilding(w, faction, kind, tx, ty)) return { tx, ty };
+  throw new Error(`no room for ${kind}`);
+}
+
+/** Lay `kind` at (tx, ty) and finish it at once (its price aside). Returns the new building, or null if refused. */
 function placeNow(w: World, faction: Faction, kind: BuildingKind, tx: number, ty: number): Building | null {
-  w.factions[faction].pending = { kind, remaining: 0, ready: true };
-  step(w, [{ type: "placeBuilding", faction, tx, ty }]);
+  const scrap = w.factions[faction].scrap;
+  w.factions[faction].scrap = BUILDINGS[kind].cost;
+  step(w, [{ type: "placeBuilding", faction, building: kind, tx, ty }]);
+  w.factions[faction].scrap = scrap;
   const b = buildingAtTile(w, tx, ty);
-  if (b && b.kind === kind && b.tx === tx && b.ty === ty) return b;
-  w.factions[faction].pending = null;
-  return null;
+  if (!b || b.kind !== kind || b.tx !== tx || b.ty !== ty) return null;
+  delete b.build;
+  b.hp = BUILDINGS[kind].hp;
+  return b;
 }
 
 /** Which of Goliath `g`'s weapons have fired since tick `t0`. */
@@ -161,16 +170,17 @@ describe("the Gantry: tech", () => {
         expect(why!.includes(BUILDINGS[k].name), `with ${have.join("+") || "nothing"}: names ${k}?`).toBe(!have.includes(k));
       // and the command does nothing
       w.factions.blue.scrap = 5000;
-      step(w, [{ type: "startBuilding", faction: "blue", building: "gantry" }]);
-      expect(w.factions.blue.pending).toBeNull();
+      step(w, [{ type: "placeBuilding", faction: "blue", building: "gantry", tx: 8, ty: 12 }]);
+      expect(buildingAtTile(w, 8, 12)).toBeNull();
       expect(w.factions.blue.scrap).toBe(5000);
     }
     const w = field();
     giveTech(w, "blue", PREREQS);
     expect(buildingBlocker(w, "blue", "gantry")).toBeNull();
     w.factions.blue.scrap = BUILDINGS.gantry.cost;
-    step(w, [{ type: "startBuilding", faction: "blue", building: "gantry" }]);
-    expect(w.factions.blue.pending?.kind).toBe("gantry");
+    const at = spotFor(w, "blue", "gantry");
+    step(w, [{ type: "placeBuilding", faction: "blue", building: "gantry", ...at }]);
+    expect(buildingAtTile(w, at.tx, at.ty)?.kind).toBe("gantry");
     expect(w.factions.blue.scrap).toBe(0);
   });
 
@@ -179,13 +189,11 @@ describe("the Gantry: tech", () => {
     giveTech(w, "blue", PREREQS);
     giveTech(w, "red", PREREQS);
     w.factions.blue.scrap = 5000;
-    step(w, [{ type: "startBuilding", faction: "blue", building: "gantry" }]);
-    expect(w.factions.blue.pending?.kind).toBe("gantry");
+    const at = spotFor(w, "blue", "gantry");
+    step(w, [{ type: "placeBuilding", faction: "blue", building: "gantry", ...at }]);
+    expect(buildingAtTile(w, at.tx, at.ty)?.build).toBeGreaterThan(0); // (a foundation)
     expect(buildingBlocker(w, "blue", "gantry")).toBe("One per side");
     expect(buildingBlocker(w, "red", "gantry")).toBeNull();
-    // finished but not yet placed: still pending
-    w.factions.blue.pending = { kind: "gantry", remaining: 0, ready: true };
-    expect(buildingBlocker(w, "blue", "gantry")).toBe("One per side");
 
     const w2 = field();
     giveTech(w2, "blue", PREREQS);
@@ -194,8 +202,9 @@ describe("the Gantry: tech", () => {
     expect(buildingBlocker(w2, "blue", "gantry")).toBe("One per side");
     expect(buildingBlocker(w2, "red", "gantry")).toBeNull();
     w2.factions.blue.scrap = 5000;
-    step(w2, [{ type: "startBuilding", faction: "blue", building: "gantry" }]);
-    expect(w2.factions.blue.pending).toBeNull();
+    const at2 = spotFor(w2, "blue", "gantry");
+    step(w2, [{ type: "placeBuilding", faction: "blue", building: "gantry", ...at2 }]);
+    expect(buildingAtTile(w2, at2.tx, at2.ty)).toBeNull();
     expect(w2.factions.blue.scrap).toBe(5000);
     // once it is destroyed, another may go up
     g.hp = 0;
@@ -731,6 +740,7 @@ describe("outposts", () => {
       if (kind === "hq") continue;
       const w2 = field();
       const g2 = anchoredAt(w2, "blue", 30, 30);
+      giveTech(w2, "blue", PREREQS); // (by its base: tech for every kind)
       const tx = Math.floor(g2.x) + 1;
       const ty = Math.floor(g2.y) - BUILDINGS[kind].size - 1;
       const b = placeNow(w2, "blue", kind, tx, ty);
@@ -1223,8 +1233,8 @@ describe("defeat", () => {
     expect(placeNow(w, "blue", "turret", Math.floor(g.x) + 1, Math.floor(g.y))).not.toBeNull();
     expect(buildingBlocker(w, "blue", "hq")).not.toBeNull();
     w.factions.blue.scrap = 10_000;
-    step(w, [{ type: "startBuilding", faction: "blue", building: "hq" }]);
-    expect(w.factions.blue.pending).toBeNull();
+    step(w, [{ type: "placeBuilding", faction: "blue", building: "hq", tx: 13, ty: 12 }]);
+    expect(w.factions.blue.scrap).toBe(10_000);
   });
 });
 

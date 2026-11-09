@@ -52,13 +52,61 @@ export function buildingBlocker(w: World, faction: Faction, kind: BuildingKind):
     const noGoliaths = bannedBy(w, "goliath", faction);
     if (noGoliaths) return noGoliaths;
   }
-  if (stats.unique && (hasBuilding(w, faction, kind) || w.factions[faction].pending?.kind === kind)) return "One per side";
-  if (stats.requires && !stats.requires.some((k) => hasBuilding(w, faction, k)))
+  if (stats.unique && plans(w, faction, kind)) return "One per side";
+  // (a foundation already laid counts: it goes up first, the queue builds in order)
+  if (stats.requires && !stats.requires.some((k) => plans(w, faction, k)))
     return `Needs ${stats.requires.map((k) => BUILDINGS[k].name).join(" or ")}`;
-  const missing = (stats.requiresAll ?? []).filter((k) => !hasBuilding(w, faction, k));
+  const missing = (stats.requiresAll ?? []).filter((k) => !plans(w, faction, k));
   if (missing.length > 0) return `Needs ${andList(missing.map((k) => BUILDINGS[k].name))}`;
   return null;
 }
+
+/** Does `faction` have a `kind`, standing or a foundation? */
+function plans(w: World, faction: Faction, kind: BuildingKind): boolean {
+  for (const b of w.buildings.values()) if (b.faction === faction && b.kind === kind) return true;
+  return false;
+}
+
+/** Is this building a foundation, still going up (Building.build)? */
+export const isFoundation = (b: Building): boolean => b.build !== undefined;
+
+/** Is this building standing: built, not a foundation? */
+export const isBuilt = (b: Building): boolean => b.build === undefined;
+
+/** `faction`'s foundations, in the order they were laid (the order they go up). */
+export function foundationsOf(w: World, faction: Faction): Building[] {
+  const out: Building[] = [];
+  for (const b of w.buildings.values()) if (b.faction === faction && b.build !== undefined) out.push(b);
+  return out.sort((a, b) => a.id - b.id);
+}
+
+/** Work (ticks at 1× build speed) a building of `kind` takes to go up. */
+export const buildTicks = (kind: BuildingKind): number => BUILDINGS[kind].buildTime * TICK_RATE;
+
+/** A new foundation's share of the building's health: it fills in as it goes up. */
+export const FOUNDATION_HP = 0.1;
+
+/**
+ * The foundation going up for `faction` now: the first laid whose tech
+ * stands (one waiting on a prerequisite that was lost steps aside, as a
+ * queued unit does), or null.
+ */
+export function constructing(w: World, faction: Faction): Building | null {
+  for (const b of foundationsOf(w, faction)) if (!techMissing(w, b)) return b;
+  return null;
+}
+
+/** A foundation's prerequisites that don't stand (yet): the first one's name, or null. */
+export function techMissing(w: World, b: Building): string | null {
+  const stats = BUILDINGS[b.kind];
+  if (stats.requires && !stats.requires.some((k) => hasBuilding(w, b.faction, k))) return BUILDINGS[stats.requires[0]!].name;
+  for (const k of stats.requiresAll ?? []) if (!hasBuilding(w, b.faction, k)) return BUILDINGS[k].name;
+  return null;
+}
+
+/** How far up a foundation is, 0..1 (1: it stands). */
+export const buildProgress = (b: Building): number =>
+  b.build === undefined ? 1 : Math.max(0, Math.min(1, 1 - b.build / buildTicks(b.kind)));
 
 /** "A", "A and B", "A, B and C". */
 const andList = (xs: string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
@@ -79,22 +127,6 @@ export function unitBlocker(w: World, faction: Faction, kind: UnitKind): string 
 }
 
 // ------------------------------------------------------------- commands ----
-
-export function startBuilding(w: World, faction: Faction, kind: BuildingKind): void {
-  const f = w.factions[faction];
-  const stats = BUILDINGS[kind];
-  if (f.pending || buildingBlocker(w, faction, kind)) return;
-  if (f.scrap < stats.cost) return;
-  f.scrap -= stats.cost;
-  f.pending = { kind, remaining: stats.buildTime * TICK_RATE, ready: false };
-}
-
-export function cancelBuilding(w: World, faction: Faction): void {
-  const f = w.factions[faction];
-  if (!f.pending) return;
-  f.scrap += BUILDINGS[f.pending.kind].cost;
-  f.pending = null;
-}
 
 export function canPlaceBuilding(
   w: World,
@@ -135,21 +167,30 @@ export function canPlaceBuilding(
  */
 export function inBaseRange(w: World, faction: Faction, cx: number, cy: number): boolean {
   for (const b of w.buildings.values())
-    if (b.faction === faction && !b.outpost && distToBuilding(b, cx, cy) <= ECONOMY.buildRadius) return true;
+    if (b.faction === faction && !b.outpost && b.build === undefined && distToBuilding(b, cx, cy) <= ECONOMY.buildRadius) return true;
   return false;
 }
 
-export function placeBuilding(w: World, faction: Faction, tx: number, ty: number): void {
+/**
+ * Lay a foundation for `kind` at top-left tile (tx, ty): paid now, in place at
+ * once (it blocks the ground and can be shot), and built there in turn — a
+ * side's foundations go up one at a time, in the order they were laid
+ * (tickConstruction). As many as the scrap pays for can wait.
+ */
+export function placeBuilding(w: World, faction: Faction, kind: BuildingKind, tx: number, ty: number): void {
   const f = w.factions[faction];
-  if (!f.pending || !f.pending.ready) return;
-  if (!canPlaceBuilding(w, faction, f.pending.kind, tx, ty)) return;
-  const size = BUILDINGS[f.pending.kind].size;
+  const stats = BUILDINGS[kind];
+  if (!stats || buildingBlocker(w, faction, kind)) return;
+  if (f.scrap < stats.cost) return;
+  if (!canPlaceBuilding(w, faction, kind, tx, ty)) return;
+  f.scrap -= stats.cost;
+  const size = stats.size;
   // out of base range, so in a Goliath's build ring: an outpost (decided now, for good)
   const outpost = !inBaseRange(w, faction, tx + size / 2, ty + size / 2);
-  const b = spawnBuilding(w, f.pending.kind, faction, tx, ty);
+  const b = spawnBuilding(w, kind, faction, tx, ty);
   if (outpost) b.outpost = true;
-  f.pending = null;
-  w.fx.push({ type: "built", faction, id: b.id });
+  b.build = buildTicks(kind);
+  b.hp = stats.hp * FOUNDATION_HP;
   // paths that ran across the new footprint must re-plan
   invalidatePathsThrough(w, b);
 }
@@ -158,6 +199,13 @@ export function sellBuilding(w: World, faction: Faction, buildingId: number): vo
   const b = w.buildings.get(buildingId);
   if (!b || b.faction !== faction || b.kind === "hq") return;
   const stats = BUILDINGS[b.kind];
+  if (b.build !== undefined) {
+    // a foundation: cancelled, paid back in full
+    w.factions[faction].scrap += stats.cost;
+    w.fx.push({ type: "sold", id: b.id });
+    removeBuilding(w, b);
+    return;
+  }
   // refund scales with remaining health, plus anything still in its queue
   const refund = stats.cost * ECONOMY.sellRefund * (b.hp / stats.hp);
   const queued = b.queue.reduce((s, q) => s + paidFor(q), 0);
@@ -202,7 +250,7 @@ export function produceUnit(w: World, faction: Faction, buildingId: number, kind
     q.push({ kind, remaining: stats.buildTime * TICK_RATE });
     return;
   }
-  if (b.faction !== faction || stats.builtAt !== b.kind) return;
+  if (b.faction !== faction || stats.builtAt !== b.kind || b.build !== undefined) return;
   if (unitBlocker(w, faction, kind)) return;
   if (b.queue.length >= queueCap(kind)) return;
   const cost = unitCost(w, faction, kind);
@@ -227,7 +275,7 @@ export interface Producer {
 export function producersOf(w: World, faction: Faction, kind: UnitKind): Producer[] {
   const out: Producer[] = [];
   for (const b of w.buildings.values())
-    if (b.faction === faction && b.kind === UNITS[kind].builtAt) out.push({ id: b.id, queue: b.queue, goliath: null });
+    if (b.faction === faction && b.kind === UNITS[kind].builtAt && b.build === undefined) out.push({ id: b.id, queue: b.queue, goliath: null });
   if (trainableAt(w, kind)) for (const g of anchoredGoliaths(w, faction)) out.push({ id: g.id, queue: g.goliath!.queue, goliath: g });
   return out;
 }
@@ -270,7 +318,7 @@ export function cancelProduce(w: World, faction: Faction, buildingId: number, ki
 export function setRally(w: World, faction: Faction, buildingId: number, x: number, y: number): void {
   const b = w.buildings.get(buildingId);
   if (b) {
-    if (b.faction === faction) b.rally = { x, y };
+    if (b.faction === faction && b.build === undefined) b.rally = { x, y };
     return;
   }
   const g = goliathTrainer(w, buildingId, faction);
@@ -279,10 +327,23 @@ export function setRally(w: World, faction: Faction, buildingId: number, x: numb
 
 // ---------------------------------------------------------------- ticks ----
 
+/**
+ * Each side's foundation in turn goes up (constructing): health fills in with
+ * the work, damage taken stays taken. Paused while EMP'd. Done, it stands
+ * ("built") and the next one starts.
+ */
 export function tickConstruction(w: World): void {
-  for (const f of Object.values(w.factions)) {
-    if (!f.pending || f.pending.ready) continue;
-    if ((f.pending.remaining -= rulesOf(w).buildSpeed) <= 0) f.pending.ready = true;
+  const step = rulesOf(w).buildSpeed;
+  for (const faction of Object.keys(w.factions) as Faction[]) {
+    const b = constructing(w, faction);
+    if (!b || isStunned(w, b.id)) continue;
+    const total = buildTicks(b.kind);
+    const work = Math.min(step, b.build!);
+    b.hp = Math.min(BUILDINGS[b.kind].hp, b.hp + (BUILDINGS[b.kind].hp * (1 - FOUNDATION_HP) * work) / total);
+    b.build! -= work;
+    if (b.build! > 0) continue;
+    delete b.build;
+    w.fx.push({ type: "built", faction, id: b.id });
   }
 }
 
@@ -623,14 +684,8 @@ export function tickHarvest(w: World): void {
 
 export function applyEconomyCommand(w: World, c: Command): void {
   switch (c.type) {
-    case "startBuilding":
-      startBuilding(w, c.faction, c.building);
-      break;
-    case "cancelBuilding":
-      cancelBuilding(w, c.faction);
-      break;
     case "placeBuilding":
-      placeBuilding(w, c.faction, c.tx, c.ty);
+      placeBuilding(w, c.faction, c.building, c.tx, c.ty);
       break;
     case "sell":
       sellBuilding(w, c.faction, c.buildingId);

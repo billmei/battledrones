@@ -541,7 +541,8 @@ describe("what keeps a session to its own pairing", () => {
 
   it("ignores game frames that didn't pass the session CRC: another pairing's match can't get in", { timeout: 120_000 }, () => {
     // an earlier pairing's match on the same map: the host's frames, which describe the same turns as this match's
-    const earlier = duel({ seed: 6, ticks: 800 });
+    // (other personalities: its orders differ from this match's from the start, so had they got in, they would fork it)
+    const earlier = duel({ seed: 6, ticks: 800, strategies: ["rush", "balanced"] });
     const tape = tapeOf(earlier.host);
     expect(tape.length).toBeGreaterThan(500);
     // the guest of a new pairing hears that tape as well as its own host, each frame some 250 ms ahead of the same

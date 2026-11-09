@@ -137,7 +137,11 @@ else {
     await page.touchscreen.tap(spot.sx, spot.sy);
     await ff(3);
   }
-  if (!(await isPlaced())) fail("tapping the ghost did not place the Fab Plant");
+  if (!(await isPlaced())) fail("tapping the ghost did not lay the Fab Plant's foundation");
+  await shot("foundation");
+  await ff(110); // 10 s build, in place
+  const standing = await world(() => [...window.__bd.world.buildings.values()].some((b) => b.faction === window.__bd.player && b.kind === "fab-plant" && b.build === undefined));
+  if (!standing) fail("the Fab Plant's foundation never finished");
 }
 await shot("placed");
 

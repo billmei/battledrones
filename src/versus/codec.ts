@@ -20,9 +20,8 @@
  *     attack:                        units, id(targetId)
  *     stop, anchor, packUp:          units
  *     produce, cancelProduce:        id(buildingId), unitKind 5
- *     startBuilding:                 buildingKind 4
- *     cancelBuilding, callWave:      –
- *     placeBuilding:                 tx, ty     (ceil(log2(size)) bits each)
+ *     callWave:                      –
+ *     placeBuilding:                 buildingKind 4, tx, ty     (ceil(log2(size)) bits each)
  *     sell:                          id(buildingId)
  *     rally:                         id(buildingId), x, y
  *     calldown:                      power 2, x, y
@@ -50,7 +49,7 @@
  */
 import type { BuildingKind, Command, Faction, PowerKind, UnitKind } from "../sim/types";
 
-export const CODEC_VERSION = 1;
+export const CODEC_VERSION = 2; // (2: foundations — placeBuilding names its building, no start/cancel)
 
 /** A split piece is at most this many bits, so any command fits in an empty turn. */
 export const C_MAX = 96;
@@ -61,7 +60,7 @@ const UE_ZEROS_MAX = 24;
 const UE_MAX = 2 ** (UE_ZEROS_MAX + 1) - 2;
 
 export const COMMAND_TYPES = [
-  "move", "attackMove", "attack", "harvest", "stop", "produce", "cancelProduce", "startBuilding", "cancelBuilding",
+  "move", "attackMove", "attack", "harvest", "stop", "produce", "cancelProduce",
   "placeBuilding", "sell", "rally", "callWave", "calldown", "board", "unload", "anchor", "packUp", "lift", "resign"
 ] as const satisfies readonly Command["type"][];
 
@@ -271,16 +270,13 @@ function canonical(c: Command, ctx: CanonContext): Command | null {
       const buildingId = idOf(c.buildingId);
       return buildingId !== null && UNIT_INDEX.has(c.unit) ? { type: c.type, faction, buildingId, unit: c.unit } : null;
     }
-    case "startBuilding":
-      return BUILDING_INDEX.has(c.building) ? { type: c.type, faction, building: c.building } : null;
-    case "cancelBuilding":
     case "callWave":
     case "resign":
       return { type: c.type, faction };
     case "placeBuilding": {
       const tx = tile(c.tx, W);
       const ty = tile(c.ty, H);
-      return tx !== null && ty !== null ? { type: c.type, faction, tx, ty } : null;
+      return tx !== null && ty !== null && BUILDING_INDEX.has(c.building) ? { type: c.type, faction, building: c.building, tx, ty } : null;
     }
     case "sell": {
       const buildingId = idOf(c.buildingId);
@@ -412,15 +408,12 @@ export function encodeCommand(wr: BitWriter, c: Command, map: MapSize, prev: rea
       writeId(wr, c.buildingId);
       writeEnum(wr, UNIT_INDEX, c.unit, UNIT_BITS);
       return prev;
-    case "startBuilding":
-      writeEnum(wr, BUILDING_INDEX, c.building, BUILDING_BITS);
-      return prev;
-    case "cancelBuilding":
     case "callWave":
     case "resign":
       return prev;
     case "placeBuilding":
       if (tile(c.tx, map.width) === null || tile(c.ty, map.height) === null) throw new CodecError("a tile off the map");
+      writeEnum(wr, BUILDING_INDEX, c.building, BUILDING_BITS);
       wr.bits(c.tx, bitsFor(map.width));
       wr.bits(c.ty, bitsFor(map.height));
       return prev;
@@ -552,15 +545,13 @@ export function decodeCommand(
       const buildingId = readId(rd);
       return { command: { type, faction, buildingId, unit: readEnum(rd, UNIT_KINDS, UNIT_BITS) }, units: prev };
     }
-    case "startBuilding":
-      return { command: { type, faction, building: readEnum(rd, BUILDING_KINDS, BUILDING_BITS) }, units: prev };
-    case "cancelBuilding":
     case "callWave":
     case "resign":
       return { command: { type, faction }, units: prev };
     case "placeBuilding": {
+      const building = readEnum(rd, BUILDING_KINDS, BUILDING_BITS);
       const tx = readTile(rd, map.width);
-      return { command: { type, faction, tx, ty: readTile(rd, map.height) }, units: prev };
+      return { command: { type, faction, building, tx, ty: readTile(rd, map.height) }, units: prev };
     }
     case "sell":
       return { command: { type, faction, buildingId: readId(rd) }, units: prev };

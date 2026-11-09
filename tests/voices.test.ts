@@ -376,14 +376,20 @@ describe("battle callouts", () => {
 
   it("says construction complete once per finished structure, and promotions from rank 2", () => {
     const r = rig();
-    r.w.factions.blue.pending = { kind: "fab-plant", remaining: 0, ready: true };
+    // a foundation goes up, then stands: one line; the next one, another
+    const fab = spawnBuilding(r.w, "fab-plant", "blue", 4, 4);
+    fab.build = 10;
     r.at(1);
+    expect(r.keys()).toEqual([]);
+    delete fab.build;
     r.at(2);
-    expect(r.keys()).toEqual(["construction"]);
-    r.w.factions.blue.pending = null;
     r.at(3);
-    r.w.factions.blue.pending = { kind: "airpad", remaining: 0, ready: true };
+    expect(r.keys()).toEqual(["construction"]);
+    const pad = spawnBuilding(r.w, "airpad", "blue", 10, 4);
+    pad.build = 10;
     r.at(4);
+    delete pad.build;
+    r.at(4.5);
     expect(r.keys()).toEqual(["construction", "construction"]);
     const vet = spawnUnit(r.w, "mastodon", "blue", 5, 5);
     vet.rank = 1;
@@ -421,7 +427,10 @@ describe("battle callouts", () => {
     r.at(30, death({ faction: "red", unitKind: null, buildingKind: "fab-plant" }));
     expect(r.radio.at(-1)!.text).toBe("Red Fab Plant destroyed");
     // no player-only lines for a spectator
-    r.w.factions.blue.pending = { kind: "fab-plant", remaining: 0, ready: true };
+    const late = spawnBuilding(r.w, "depot", "blue", 16, 4);
+    late.build = 10;
+    r.at(39);
+    delete late.build;
     r.at(40, death({ faction: "blue" }), death({ faction: "blue" }), death({ faction: "blue" }));
     expect(r.radio.some((l) => l.key === "construction" || l.key === "squad-lost")).toBe(false);
     r.w.winner = "red";

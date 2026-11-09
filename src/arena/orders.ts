@@ -18,6 +18,7 @@ import {
   applyEconomyCommand,
   buildingBlocker,
   canPlaceBuilding,
+  foundationsOf,
   nearestReachableResource,
   producerCap,
   producersOf,
@@ -43,21 +44,11 @@ export const BUILDING_KINDS = Object.keys(BUILDINGS) as BuildingKind[];
 /** Units that fight (not harvesters, not the unarmed Condor and Scout). */
 export const isArmy = (k: UnitKind): boolean => k !== "harvester" && k !== "condor" && k !== "scout";
 
-/** A building the side wants placed when its construction is ready (world top-left, or a spot to pick). */
-export interface BuildIntent {
-  kind: BuildingKind;
-  at: [number, number] | null;
-}
-
 export interface OrderBatch {
   commands: Command[];
   /** One line per order: "1. ok: …" or "1. refused: …". */
   results: string[];
   opener?: OpenerId;
-  /** Set when a "build" started a building (or moved where a pending one goes). */
-  build?: BuildIntent;
-  /** Set when the building under construction was cancelled. */
-  cancelBuild?: boolean;
 }
 
 class Refused extends Error {}
@@ -249,13 +240,13 @@ function one(w: World, fr: Frame, side: Faction, verb: Verb, o: Record<string, u
       const what = String(o.cancel);
       const f = w.factions[side];
       const bk = buildingKindOf(what);
-      if (["building", "construction", "build"].includes(what.toLowerCase()) || (bk && o.at === undefined && f.pending?.kind === bk)) {
-        if (!f.pending) refuse("nothing is under construction");
-        const kind = f.pending!.kind;
-        applyEconomyCommand(w, { type: "cancelBuilding", faction });
-        out.commands.push({ type: "cancelBuilding", faction });
-        out.cancelBuild = true;
-        return `cancelled the ${kind} (+${BUILDINGS[kind].cost} scrap)`;
+      if (["building", "construction", "build", "foundation"].includes(what.toLowerCase()) || (bk && o.at === undefined)) {
+        // the last foundation laid (of that kind, if one is named)
+        const last = foundationsOf(w, side).filter((b) => !bk || b.kind === bk).pop();
+        if (!last) refuse(bk ? `no ${bk} foundation to cancel` : "nothing is under construction");
+        applyEconomyCommand(w, { type: "sell", faction, buildingId: last!.id });
+        out.commands.push({ type: "sell", faction, buildingId: last!.id });
+        return `cancelled the ${last!.kind} foundation #${last!.id} (+${BUILDINGS[last!.kind].cost} scrap)`;
       }
       const kind = unitKindOf(what);
       if (!kind) refuse(`cancel what? a unit kind (with "at": building or Goliath id) or "building"`);
@@ -270,29 +261,28 @@ function one(w: World, fr: Frame, side: Faction, verb: Verb, o: Record<string, u
       const kind = buildingKindOf(String(o.build));
       if (!kind) refuse(`no building "${o.build}": one of ${BUILDING_KINDS.filter((k) => k !== "hq").join(", ")}`);
       const f = w.factions[side];
+      const why = buildingBlocker(w, side, kind!);
+      if (why) refuse(why);
+      if (f.scrap < BUILDINGS[kind!].cost) refuse(`Not enough scrap (have ${Math.floor(f.scrap)}, need ${BUILDINGS[kind!].cost})`);
+      // the foundation goes down now: where asked (a unit standing there: nearby), else a sensible spot
       let at: [number, number] | null = null;
+      let note = "";
       if (o.at !== undefined) {
         const xy = coords(o.at);
         if (!xy) refuse(`"at" must be [x, y]: the building's top-left tile`);
         at = fr.worldTopLeft(kind!, xy![0], xy![1]);
-        const why = placementBlocker(w, side, kind!, at[0], at[1]);
-        // (a unit standing there may move off before it's ready: placing then decides)
-        if (why && why !== "Unit in the way") refuse(`can't put ${an(kind!)} at ${xy![0]},${xy![1]}: ${why}`);
-      }
-      if (f.pending) {
-        if (f.pending.kind === kind && at) {
-          out.build = { kind: kind!, at };
-          return `the ${kind} under construction will go at ${fr.topLeft(kind!, at[0], at[1]).join(",")}`;
+        const blocked = placementBlocker(w, side, kind!, at[0], at[1]);
+        if (blocked && blocked !== "Unit in the way") refuse(`can't put ${an(kind!)} at ${xy![0]},${xy![1]}: ${blocked}`);
+        if (blocked) {
+          at = suggestSpot(w, side, kind!, { x: at[0] + 1, y: at[1] + 1 });
+          note = ` (a unit stood at ${xy![0]},${xy![1]}: laid nearby)`;
         }
-        refuse(`already building ${an(f.pending.kind)} (${f.pending.ready ? "ready, being placed" : `${Math.ceil(f.pending.remaining / 10)}s left`}): one building at a time`);
-      }
-      const why = buildingBlocker(w, side, kind!);
-      if (why) refuse(why);
-      if (f.scrap < BUILDINGS[kind!].cost) refuse(`Not enough scrap (have ${Math.floor(f.scrap)}, need ${BUILDINGS[kind!].cost})`);
-      applyEconomyCommand(w, { type: "startBuilding", faction, building: kind! });
-      out.commands.push({ type: "startBuilding", faction, building: kind! });
-      out.build = { kind: kind!, at };
-      return `started building ${an(kind!)} (-${BUILDINGS[kind!].cost} scrap, ready in ${BUILDINGS[kind!].buildTime}s)${at ? `, to go at ${fr.topLeft(kind!, at[0], at[1]).join(",")}` : ", placed automatically when ready"}`;
+      } else at = suggestSpot(w, side, kind!);
+      if (!at) refuse(`nowhere to put ${an(kind!)}`);
+      const ahead = foundationsOf(w, side).length;
+      applyEconomyCommand(w, { type: "placeBuilding", faction, building: kind!, tx: at![0], ty: at![1] });
+      out.commands.push({ type: "placeBuilding", faction, building: kind!, tx: at![0], ty: at![1] });
+      return `laid ${an(kind!)} foundation at ${fr.topLeft(kind!, at![0], at![1]).join(",")}${note} (-${BUILDINGS[kind!].cost} scrap, ${BUILDINGS[kind!].buildTime}s to build${ahead ? `, after the ${ahead} already in the build queue` : ""})`;
     }
     case "sell": {
       const b = ownBuilding(w, side, o.sell);
@@ -603,7 +593,8 @@ export function suggestSpot(w: World, side: Faction, kind: BuildingKind, near?: 
   const hq = hqOf(w, side);
   const size = BUILDINGS[kind].size;
   const own = [...w.buildings.values()].filter((b) => b.faction === side);
-  const bases = own.filter((b) => !b.outpost);
+  // (foundations give no build range, and take no harvests yet)
+  const bases = own.filter((b) => !b.outpost && b.build === undefined);
   const framed = (p: { x: number; y: number }) => fr.pt(p.x, p.y);
   const goliaths = anchoredGoliaths(w, side).sort((a, b) => {
     const ap = framed(a);
@@ -626,7 +617,7 @@ export function suggestSpot(w: World, side: Faction, kind: BuildingKind, near?: 
       // the nearest field (own frame scan order) that no drop-off already serves
       let best: { x: number; y: number } | null = null;
       let bestD = Infinity;
-      const drops = own.filter((b) => BUILDINGS[b.kind].dropOff);
+      const drops = own.filter((b) => BUILDINGS[b.kind].dropOff);  // (a drop-off still going up will serve its field too)
       for (let fy = 0; fy < w.height; fy++)
         for (let fx = 0; fx < w.width; fx++) {
           const [tx, ty] = fr.worldTile(fx, fy);

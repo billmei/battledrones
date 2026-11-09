@@ -274,10 +274,8 @@ describe("arena Goliath production and placement", () => {
     expect(spot).not.toBeNull();
     expect(canPlaceBuilding(w, "blue", "depot", spot![0], spot![1])).toBe(true);
     const batch = accepted(structuredClone(w), [{ build: "depot" }]);
-    expect(batch.build).toEqual({ kind: "depot", at: null });
+    expect(batch.commands).toEqual([{ type: "placeBuilding", faction: "blue", building: "depot", tx: spot![0], ty: spot![1] }]);
     step(w, batch.commands);
-    advanceUntil(w, () => w.factions.blue.pending?.ready === true);
-    step(w, [{ type: "placeBuilding", faction: "blue", tx: spot![0], ty: spot![1] }]);
     expect([...w.buildings.values()]).toEqual([expect.objectContaining({ kind: "depot", faction: "blue", tx: spot![0], ty: spot![1] })]);
   });
 });

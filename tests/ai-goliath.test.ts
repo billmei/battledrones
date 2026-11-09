@@ -83,7 +83,7 @@ describe("the Gantry", () => {
     const { w, ai, hq } = midGame("boom");
     const started: string[] = [];
     runRed(w, 90, ai, (cmds) => {
-      for (const c of cmds) if (c.type === "startBuilding") started.push(c.building);
+      for (const c of cmds) if (c.type === "placeBuilding") started.push(c.building);
     });
     expect(started).toContain("assembly-bay");
     expect(started).toContain("gantry");
@@ -108,7 +108,7 @@ describe("the Gantry", () => {
     ] as const) {
       const { w, ai } = midGame(strategy, difficulty, secs, true);
       const { cmds } = runRed(w, 40, ai);
-      expect(cmds.some((c) => c.type === "startBuilding" && c.building === "gantry"), `${strategy} ${difficulty}`).toBe(want);
+      expect(cmds.some((c) => c.type === "placeBuilding" && c.building === "gantry"), `${strategy} ${difficulty}`).toBe(want);
     }
   }, 30000);
 
@@ -116,7 +116,7 @@ describe("the Gantry", () => {
     const { w, ai } = midGame("boom", "normal", 330, true);
     for (const u of units(w, "red", "stinger")) w.units.delete(u.id);
     const { cmds } = runRed(w, 10, ai);
-    expect(cmds.some((c) => c.type === "startBuilding" && c.building === "gantry")).toBe(false);
+    expect(cmds.some((c) => c.type === "placeBuilding" && c.building === "gantry")).toBe(false);
   });
 
   /** Ironclad at 6:40 with a Gantry and 5,000 scrap; every Goliath it orders, and the price it paid. */

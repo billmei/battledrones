@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canPlaceBuilding } from "../src/sim/economy";
 import { replay } from "../src/arena/record";
 import { planTicks } from "../src/game/awareness";
 import { Controller, buildView } from "../src/game/controller";
@@ -586,23 +587,26 @@ describe("orders in flight", () => {
     const side = p.feed!.local;
     const f = w.factions[side];
     const hq = hqOf(w, side)!;
-    expect(f.pending).toBeNull();
+    const laid = () => [...w.buildings.values()].find((b) => b.faction === side && b.kind === "fab-plant" && b.build !== undefined) ?? null;
+    expect(laid()).toBeNull();
     // (the Controller's own PLAYER is blue in this process: view the side through buildView's rules directly)
     const view = () => buildView(w, side, ctrl.inFlight);
-    ctrl.enqueue({ type: "startBuilding", faction: side, building: "fab-plant" });
+    let spot: { tx: number; ty: number } | null = null;
+    for (let dy = -6; dy <= 6 && !spot; dy++) for (let dx = -6; dx <= 6 && !spot; dx++) if (canPlaceBuilding(w, side, "fab-plant", hq.tx + dx, hq.ty + dy)) spot = { tx: hq.tx + dx, ty: hq.ty + dy };
+    ctrl.enqueue({ type: "placeBuilding", faction: side, building: "fab-plant", ...spot! });
     ctrl.enqueue({ type: "produce", faction: side, buildingId: hq.id, unit: "harvester" });
     const at = tickOf(p);
     runUntil(r, () => p.drains.length > at + 1, 2000);
     // drained and sealed, not applied yet: the bar shows them done
-    expect(f.pending).toBeNull();
-    expect(ctrl.inFlight!.map((c) => c.type)).toEqual(["startBuilding", "produce"]);
-    expect(view().pending).toMatchObject({ kind: "fab-plant", ready: false });
+    expect(laid()).toBeNull();
+    expect(ctrl.inFlight!.map((c) => c.type)).toEqual(["placeBuilding", "produce"]);
+    expect(view().queue).toMatchObject([{ id: null, kind: "fab-plant", ...spot! }]);
     expect(view().extra(hq.id, "harvester")).toBe(1);
     expect(view().scrap).toBe(f.scrap - BUILDINGS["fab-plant"].cost - UNITS.harvester.cost);
     // landed: the world has them, nothing is in flight, and the bar shows the world as it is
-    runUntil(r, () => f.pending !== null, 3000);
+    runUntil(r, () => laid() !== null, 3000);
     expect(ctrl.inFlight).toEqual([]);
-    expect(f.pending).toMatchObject({ kind: "fab-plant" });
+    expect(view().queue).toMatchObject([{ id: laid()!.id, kind: "fab-plant" }]);
     expect(hq.queue.map((q) => q.kind)).toEqual(["harvester"]);
     expect(view().extra(hq.id)).toBe(0);
     expect(view().scrap).toBe(f.scrap);
@@ -639,10 +643,10 @@ describe("orders in flight", () => {
 
   it("are nothing without an interactive feed", () => {
     const c = new Controller(setupLikeWorld());
-    c.enqueue({ type: "startBuilding", faction: "blue", building: "fab-plant" });
+    c.enqueue({ type: "placeBuilding", faction: "blue", building: "fab-plant", tx: 5, ty: 5 });
     c.drainCommands();
     expect(c.inFlight).toBeNull();
-    expect(c.view().pending).toBeNull();
+    expect(c.view().queue).toEqual([]);
   });
 });
 

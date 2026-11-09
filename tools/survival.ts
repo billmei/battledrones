@@ -82,18 +82,17 @@ function humanDefender(w0: World): Brain {
     const airThreat = st.nextTheme === "air" || foes.filter((u) => UNITS[u.kind].domain === "air").length >= 2;
     const swarmThreat = st.nextTheme === "swarm" || foes.filter((u) => isInfantry(u.kind)).length >= 4;
     let scrap = f.scrap;
-    if (f.pending?.ready) {
-      const k = f.pending.kind;
-      const anchor = k === "turret" || k === "sam-site" ? (bi % 2 ? front : guard) : toward({ x: w.width / 2, y: w.height / 2 }, 2);
-      const s = spot(w, k, anchor);
-      if (s) cmds.push({ type: "placeBuilding", faction: "blue", tx: s.tx, ty: s.ty });
-    } else if (!f.pending && bi < build.length) {
+    if (!myB.some((b) => b.build !== undefined) && bi < build.length) {
       const next = build[bi]!;
       const req = BUILDINGS[next].requires;
-      if (scrap >= BUILDINGS[next].cost && (!req || req.some((r) => myB.some((b) => b.kind === r)))) {
-        cmds.push({ type: "startBuilding", faction: "blue", building: next });
-        scrap -= BUILDINGS[next].cost;
-        bi++;
+      if (scrap >= BUILDINGS[next].cost && (!req || req.some((r) => myB.some((b) => b.kind === r && b.build === undefined)))) {
+        const anchor = next === "turret" || next === "sam-site" ? (bi % 2 ? front : guard) : toward({ x: w.width / 2, y: w.height / 2 }, 2);
+        const s = spot(w, next, anchor);
+        if (s) {
+          cmds.push({ type: "placeBuilding", faction: "blue", building: next, tx: s.tx, ty: s.ty });
+          scrap -= BUILDINGS[next].cost;
+          bi++;
+        }
       }
     }
     if (mine.filter((u) => u.kind === "harvester").length + hqB.queue.length < 4 && scrap >= 150) {
