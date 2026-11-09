@@ -229,23 +229,23 @@ describe("controller: touch placement", () => {
     expect([...c.selectedUnits]).toEqual([a.id]);
   });
 
-  it("Shift+drag keeps an armed Move only, and is quiet when it adds nothing", () => {
+  it("Shift+drag keeps an armed attack-move, and is quiet when it adds nothing", () => {
     const w = field();
     const c = new Controller(w);
     const [a, b, d] = [1, 2, 3].map((i) => spawnUnit(w, "stinger", "blue", 10 + i, 10));
     c.selectUnits([a!.id]);
-    c.forceMove = true;
+    c.attackArmed = true;
     const before = c.selectedUnits;
     c.addUnits([a!.id]); // a box over what's already selected
     expect(c.selectedUnits).toBe(before); // no fresh set: no voice
     c.addUnits([b!.id, d!.id]);
     expect([...c.selectedUnits]).toEqual([a!.id, b!.id, d!.id]);
     expect(c.selectedUnits).not.toBe(before); // adding is a fresh selection: the voices answer
-    expect(c.forceMove).toBe(true);
-    // the next ground click is still the Move only order, for the whole group
+    expect(c.attackArmed).toBe(true);
+    // the next ground click is still the attack-move, for the whole group
     c.tapWorld(20.5, 20.5, { kind: "ground" });
     expect(c.drainCommands()).toEqual([
-      { type: "move", faction: "blue", unitIds: [a!.id, b!.id, d!.id], x: 20.5, y: 20.5 }
+      { type: "attackMove", faction: "blue", unitIds: [a!.id, b!.id, d!.id], x: 20.5, y: 20.5 }
     ]);
   });
 
@@ -269,18 +269,18 @@ describe("controller: touch placement", () => {
     c.tapWorld(11, 10, { kind: "ownUnit", id: a!.id });
     c.tapWorld(12, 10, { kind: "ownUnit", id: b!.id }, true);
     expect([...c.selectedUnits]).toEqual([a!.id, b!.id]);
-    c.forceMove = true;
+    c.attackArmed = true;
     const before = c.selectedUnits;
     c.tapWorld(11, 10, { kind: "ownUnit", id: a!.id }, true);
     expect([...c.selectedUnits]).toEqual([b!.id]);
     expect(c.selectedUnits).toBe(before); // taking one out is quiet (no voice)
-    expect(c.forceMove).toBe(true); // an armed Move only survives
+    expect(c.attackArmed).toBe(true); // an armed attack-move survives
     c.tapWorld(13, 10, { kind: "ownUnit", id: d!.id }, true);
     expect([...c.selectedUnits]).toEqual([b!.id, d!.id]);
     expect(c.selectedUnits).not.toBe(before); // adding one is a fresh selection: the voices answer
-    // Shift only changes taps on your own units: the ground still gets the (Move only) order
+    // Shift only changes taps on your own units: the ground still gets the (attack-move) order
     c.tapWorld(20.5, 20.5, { kind: "ground" }, true);
-    expect(c.drainCommands()).toEqual([{ type: "move", faction: "blue", unitIds: [b!.id, d!.id], x: 20.5, y: 20.5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "attackMove", faction: "blue", unitIds: [b!.id, d!.id], x: 20.5, y: 20.5 }]);
     // a Shift+click on a unit while a building is selected starts a unit selection
     const hq = hqOf(w, "blue")!;
     c.clearSelection();
@@ -701,12 +701,12 @@ describe("Condor: boarding and drops from taps", () => {
     expect(c.drainCommands()).toEqual([
       { type: "unload", faction: "blue", unitIds: [condor.id], x: 25.5, y: 24.5 },
       // the rest of the selection goes along
-      { type: "attackMove", faction: "blue", unitIds: [empty.id, tank.id], x: 25.5, y: 24.5 }
+      { type: "move", faction: "blue", unitIds: [empty.id, tank.id], x: 25.5, y: 24.5 }
     ]);
     expect(c.lastFeedback).toEqual({ kind: "drop", x: 25.5, y: 24.5 });
     // an ordinary tap on the ground still just moves
     c.tapWorld(30.5, 30.5, { kind: "ground" });
-    expect(c.drainCommands()).toEqual([{ type: "attackMove", faction: "blue", unitIds: [condor.id, empty.id, tank.id], x: 30.5, y: 30.5 }]);
+    expect(c.drainCommands()).toEqual([{ type: "move", faction: "blue", unitIds: [condor.id, empty.id, tank.id], x: 30.5, y: 30.5 }]);
   });
 
   it("an Assembly Bay takes a rally point like any factory", () => {
@@ -765,5 +765,82 @@ describe("Condor: boarding and drops from taps", () => {
     expect(c.squads.ids(0, w)).toEqual([condor.id]);
     expect(c.selectSquad(0)).toBe(1);
     expect(c.squads.matches(0, c.selectedUnits, w)).toBe(true); // (the chip lights up)
+  });
+});
+
+describe("mouse controls: left click selects, right click orders", () => {
+  it("a left click selects and never orders; the ground or an enemy clears the selection", () => {
+    const w = field();
+    const c = new Controller(w);
+    const a = spawnUnit(w, "stinger", "blue", 10, 10);
+    const b = spawnUnit(w, "stinger", "blue", 11, 10);
+    const foe = spawnUnit(w, "stinger", "red", 20, 20);
+    const pad = spawnBuilding(w, "airpad", "blue", 12, 4);
+    c.clickWorld(10, 10, { kind: "ownUnit", id: a.id });
+    expect([...c.selectedUnits]).toEqual([a.id]);
+    c.clickWorld(11, 10, { kind: "ownUnit", id: b.id }, true); // Shift adds
+    expect([...c.selectedUnits]).toEqual([a.id, b.id]);
+    // our own building is selected, not walked to
+    c.clickWorld(pad.tx + 1, pad.ty + 1, { kind: "ownBuilding", id: pad.id });
+    expect(c.selectedBuilding).toBe(pad.id);
+    expect(c.selectedUnits.size).toBe(0);
+    c.selectUnits([a.id, b.id]);
+    c.clickWorld(20, 20, { kind: "enemy", id: foe.id, targetsAir: false });
+    expect(c.selectedUnits.size).toBe(0);
+    c.selectUnits([a.id, b.id]);
+    c.clickWorld(25.5, 25.5, { kind: "ground" });
+    expect(c.selectedUnits.size).toBe(0);
+    expect(c.drainCommands()).toEqual([]);
+  });
+
+  it("a right click (tapWorld) is a plain move by default; A then a left click attack-moves", () => {
+    const w = field();
+    const c = new Controller(w);
+    const a = spawnUnit(w, "stinger", "blue", 10, 10);
+    const foe = spawnUnit(w, "stinger", "red", 20, 20);
+    c.selectUnits([a.id]);
+    c.tapWorld(25.5, 25.5, { kind: "ground" });
+    expect(c.drainCommands()).toEqual([{ type: "move", faction: "blue", unitIds: [a.id], x: 25.5, y: 25.5 }]);
+    expect(c.canAttackMove()).toBe(true);
+    c.attackArmed = true; // the A key
+    c.clickWorld(26.5, 26.5, { kind: "ground" });
+    expect(c.drainCommands()).toEqual([{ type: "attackMove", faction: "blue", unitIds: [a.id], x: 26.5, y: 26.5 }]);
+    expect(c.attackArmed).toBe(false); // spent
+    expect([...c.selectedUnits]).toEqual([a.id]); // and the selection stays
+    // armed, a left click on an enemy attacks it
+    c.attackArmed = true;
+    c.clickWorld(foe.x, foe.y, { kind: "enemy", id: foe.id, targetsAir: false });
+    expect(c.drainCommands()).toEqual([{ type: "attack", faction: "blue", unitIds: [a.id], targetId: foe.id }]);
+    expect(c.attackArmed).toBe(false);
+  });
+
+  it("nothing to attack-move with: harvesters and empty selections can't arm", () => {
+    const w = field();
+    const c = new Controller(w);
+    expect(c.canAttackMove()).toBe(false);
+    c.selectUnits([spawnUnit(w, "harvester", "blue", 10, 10).id]);
+    expect(c.canAttackMove()).toBe(false);
+  });
+
+  it("a double-click on a building selects every one of its kind, and they all take the rally point", () => {
+    const w = field();
+    const c = new Controller(w);
+    const p1 = spawnBuilding(w, "airpad", "blue", 12, 4);
+    const p2 = spawnBuilding(w, "airpad", "blue", 16, 4);
+    spawnBuilding(w, "fab-plant", "blue", 12, 10);
+    spawnBuilding(w, "airpad", "red", 28, 28);
+    c.selectBuildingKind(p2.id);
+    expect(c.selectedBuilding).toBe(p2.id);
+    expect(c.selectedBuildingIds()).toEqual([p1.id, p2.id]);
+    c.tapWorld(20.5, 20.5, { kind: "ground" });
+    expect(c.drainCommands()).toEqual([
+      { type: "rally", faction: "blue", buildingId: p1.id, x: 20.5, y: 20.5 },
+      { type: "rally", faction: "blue", buildingId: p2.id, x: 20.5, y: 20.5 }
+    ]);
+    // a single click on one of them picks just that one again
+    c.clickWorld(p1.tx + 1, p1.ty + 1, { kind: "ownBuilding", id: p1.id });
+    expect(c.selectedBuildingIds()).toEqual([p1.id]);
+    c.tapWorld(21.5, 21.5, { kind: "ground" });
+    expect(c.drainCommands()).toEqual([{ type: "rally", faction: "blue", buildingId: p1.id, x: 21.5, y: 21.5 }]);
   });
 });

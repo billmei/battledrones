@@ -719,8 +719,8 @@ describe("taps that build on your own last order, the world D ticks behind", () 
     runUntil(r, () => blueOrders(blue).length >= 3, 10_000);
     runFor(r, 500);
     const all = list(ids.g, ids.a, ids.b);
-    expect(blueOrders(blue)).toEqual([`lift:${list(ids.a, ids.b)}`, `stop:${all}`, `attackMove:${all}`]);
-    for (const id of [ids.g, ids.a, ids.b]) expect(onBoth(r, id, (u) => u.order.type === "attackMove" && u.order.x === to.x && u.order.y === to.y), `unit ${id}`).toBe(true);
+    expect(blueOrders(blue)).toEqual([`lift:${list(ids.a, ids.b)}`, `stop:${all}`, `move:${all}`]);
+    for (const id of [ids.g, ids.a, ids.b]) expect(onBoth(r, id, (u) => u.order.type === "move" && u.order.x === to.x && u.order.y === to.y), `unit ${id}`).toBe(true);
     expect(onBoth(r, ids.g, (u) => u.goliath!.lift === null)).toBe(true);
     expect(ls(r.host).desync || ls(r.guest).desync).toBe(false);
   });

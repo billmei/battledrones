@@ -1,0 +1,88 @@
+{
+ "rifle": [
+  "rifle.mp3",
+  "rifle-1.mp3"
+ ],
+ "snipe": "snipe.mp3",
+ "crush": "crush.mp3",
+ "clank": [
+  "clank.mp3",
+  "clank-1.mp3"
+ ],
+ "thrust": "thrust.mp3",
+ "cannon": [
+  "cannon.mp3",
+  "cannon-1.mp3"
+ ],
+ "heavy": "heavy.mp3",
+ "mg": [
+  "mg.mp3",
+  "mg-1.mp3"
+ ],
+ "flak": [
+  "flak.mp3",
+  "flak-1.mp3"
+ ],
+ "rocket": [
+  "rocket.mp3",
+  "rocket-1.mp3"
+ ],
+ "missile": "missile.mp3",
+ "laser": [
+  "laser.mp3",
+  "laser-1.mp3"
+ ],
+ "shell": [
+  "shell.mp3",
+  "shell-1.mp3"
+ ],
+ "bomb": "bomb.mp3",
+ "explosion": [
+  "explosion.mp3",
+  "explosion-1.mp3"
+ ],
+ "bigExplosion": [
+  "bigExplosion.mp3",
+  "bigExplosion-1.mp3"
+ ],
+ "build": "build.mp3",
+ "ready": "ready.mp3",
+ "click": "click.mp3",
+ "alert": "alert.mp3",
+ "heal": "heal.mp3",
+ "rank": "rank.mp3",
+ "sell": "sell.mp3",
+ "victory": "victory.mp3",
+ "defeat": "defeat.mp3",
+ "kill": "kill.mp3",
+ "lost": "lost.mp3",
+ "coin": "coin.mp3",
+ "inbound": "inbound.mp3",
+ "deny": "deny.mp3",
+ "squad": "squad.mp3",
+ "siren": "siren.mp3",
+ "emp": "emp.mp3",
+ "pod": "pod.mp3",
+ "hammer": "hammer.mp3",
+ "charge": "charge.mp3",
+ "uplink": "uplink.mp3",
+ "capture": "capture.mp3",
+ "uplinkLost": "uplinkLost.mp3",
+ "drop": "drop.mp3",
+ "crate": "crate.mp3",
+ "anchor": "anchor.mp3",
+ "packup": "packup.mp3",
+ "stomp": [
+  "stomp.mp3",
+  "stomp-1.mp3"
+ ],
+ "topple": "topple.mp3",
+ "offline": "offline.mp3",
+ "reboot": "reboot.mp3",
+ "weld": "weld.mp3",
+ "rollout": "rollout.mp3",
+ "hook": "hook.mp3",
+ "love": "love.mp3",
+ "radio-open": "radio-open.mp3",
+ "radio-close": "radio-close.mp3"
+}

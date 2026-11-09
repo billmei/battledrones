@@ -6,9 +6,11 @@
  * through RadioQueue: most important first, ≥ 2.5 s apart, stale lines
  * dropped.
  *
- * Delivery: a short radio squelch on the voice bus, then the browser's
- * speechSynthesis (low pitch, a little fast, an English voice preferred),
- * and a soft "over" click at the end. Where speech is missing, or the Voice
+ * Delivery: a short radio squelch on the voice bus, then the line: a
+ * recording of the ElevenLabs announcer voice when the line has one
+ * (voice-lines.ts, tools/voice), else the browser's speechSynthesis (low
+ * pitch, a little fast, an English voice preferred), and a soft "over" click
+ * at the end. Where speech is missing, or the Voice
  * setting is "Chirps" (no speech), a two-tone radio code stands in for the
  * words; radio-only lines also get a small caption so nothing is lost with
  * the sound off. Speech must be unlocked from a user gesture on iOS; the
@@ -16,7 +18,8 @@
  */
 import type { Faction, FxEvent, World } from "../sim/types";
 import { onAnnounce, announce, type Announcement, type AnnounceTone } from "./announce";
-import { sfx } from "./audio";
+import { sfx, sfxSamples } from "./audio";
+import { PRELOAD_LINES, voiceKey, voiceLines } from "./voice-lines";
 import { BattleCallouts, RadioQueue, isEndLine, speakable, type RadioCueKey, type RadioLine } from "./callouts";
 
 /** Speech voice settings. */
@@ -29,7 +32,11 @@ export const SPEECH = {
   /** Music duck while a line plays, dB. */
   duckDb: 5,
   /** Give up waiting for a line's end after this long past its estimate, s. */
-  overrunS: 2
+  overrunS: 2,
+  /** How long a recorded line that isn't loaded yet may keep the radio waiting before speech reads it instead, ms. */
+  recordingWaitMs: 700,
+  /** Level of a recorded line on the voice bus. */
+  recordingGain: 1.25
 } as const;
 
 /** Rough spoken length of a line, seconds (for the music duck and the busy timeout). */
@@ -165,9 +172,83 @@ class Speech {
 
 const speech = new Speech();
 
+// ------------------------------------------------------------ recordings --
+
+/** The recorded line playing now (stopped when the last word cuts in, or the game ends). */
+let playing: AudioBufferSourceNode | null = null;
+
+function stopRecording(): void {
+  const p = playing;
+  playing = null;
+  if (!p) return;
+  p.onended = null;
+  try {
+    p.stop();
+  } catch {
+    /* not started yet */
+  }
+}
+
+/** Is there a recording of this line (once the voice manifest is in)? */
+function hasRecording(text: string): boolean {
+  return voiceLines.has(voiceKey(text));
+}
+
+/**
+ * Play the recording of `text`: at once when it is decoded, else as soon as
+ * it loads, unless that takes longer than SPEECH.recordingWaitMs (then
+ * `fallback` runs, as it does when the file can't be had). `done` runs when
+ * the line ends. Returns the line's length when it is already decoded.
+ */
+function playRecording(text: string, done: () => void, fallback: () => void): number | null {
+  const e = sfx.engine;
+  if (!e) {
+    fallback();
+    return null;
+  }
+  const key = voiceKey(text);
+  const start = (buf: AudioBuffer) => {
+    stopRecording();
+    const src = e.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = e.ctx.createGain();
+    g.gain.value = SPEECH.recordingGain;
+    src.connect(g).connect(e.voiceIn);
+    src.onended = () => {
+      g.disconnect();
+      if (playing === src) playing = null;
+      done();
+    };
+    playing = src;
+    src.start();
+  };
+  const buf = voiceLines.ready(key);
+  if (buf) {
+    start(buf);
+    return buf.duration;
+  }
+  let settled = false;
+  const timer = window.setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    fallback();
+  }, SPEECH.recordingWaitMs);
+  void voiceLines.load(e.ctx, key).then((b) => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timer);
+    if (b) start(b);
+    else fallback();
+  });
+  return null;
+}
+
+// the voice manifest and the commonest lines, as soon as audio starts (the rest load on first use)
+sfx.onReady((e) => void voiceLines.preload(e.ctx, PRELOAD_LINES, 2));
+
 // ----------------------------------------------------------- radio sounds --
 
-/** Radio squelch: a band-passed noise burst and a 1.2 kHz key-up beep. */
+/** Radio squelch: a recorded push-to-talk click, or a band-passed noise burst and a 1.2 kHz key-up beep. */
 function squelch(open: boolean): void {
   const e = sfx.engine;
   if (!e) return;
@@ -176,6 +257,17 @@ function squelch(open: boolean): void {
   const out = ctx.createGain();
   out.gain.value = 0.5;
   out.connect(voiceIn);
+  // the recorded walkie-talkie click when it is in
+  const rec = sfxSamples.ready(open ? "radio-open" : "radio-close");
+  if (rec) {
+    out.gain.value = 0.3;
+    const src = ctx.createBufferSource();
+    src.buffer = rec;
+    src.connect(out);
+    src.start(t);
+    setTimeout(() => out.disconnect(), (rec.duration + 0.2) * 1000);
+    return;
+  }
   const src = ctx.createBufferSource();
   src.buffer = noise;
   const bp = ctx.createBiquadFilter();
@@ -256,9 +348,12 @@ export function radioCheck(): void {
   squelch(true);
   const fallback = () => code("info", 2);
   // link mode (a sound duel) speaks no words: the code stands in
-  if (sfx.settings.speech && !sfx.linkMode && speech.usable) {
-    if (!speech.speak("Radio check", "info", () => squelch(false), fallback)) fallback();
-  } else fallback();
+  if (!sfx.settings.speech || sfx.linkMode) return void fallback();
+  const speak = () => {
+    if (!speech.usable || !speech.speak("Radio check", "info", () => squelch(false), fallback)) fallback();
+  };
+  if (hasRecording("Radio check")) playRecording("Radio check", () => squelch(false), speak);
+  else speak();
 }
 
 // ------------------------------------------------------------ announcer --
@@ -278,7 +373,7 @@ export interface RadioLogEntry {
   t: number;
   key: string;
   text: string;
-  how: "speech" | "code" | "silent";
+  how: "recording" | "speech" | "code" | "silent";
 }
 
 let active: Announcer | null = null;
@@ -346,6 +441,7 @@ export class Announcer {
       this.ended = true;
       this.queue.clear();
       speech.cancel();
+      stopRecording();
       this.busyUntil = 0;
       this.queue.push(line, this.clock);
       return;
@@ -370,20 +466,27 @@ export class Announcer {
     let len = lineSeconds(line.text);
     if (voiceOn) {
       squelch(true);
+      const recorded = this.speechOn && hasRecording(line.text);
       const words = this.speechOn && speech.usable;
-      if (words) {
-        how = "speech";
+      if (recorded || words) {
+        how = recorded ? "recording" : "speech";
         const startAt = this.clock;
         const release = () => (this.busyUntil = Math.min(this.busyUntil, this.clock + 0.25));
-        window.setTimeout(() => {
+        const over = () => {
+          // done: an "over" click, and the queue may move on shortly
+          if (sfx.enabled("voice")) squelch(false);
+          release();
+        };
+        const speak = () => {
+          if (!speech.usable) {
+            if (sfx.enabled("voice") && !this.ended) code(line.tone, line.priority);
+            release();
+            return;
+          }
           const ok = speech.speak(
             line.text,
             line.tone,
-            () => {
-              // done: an "over" click, and the queue may move on shortly
-              if (sfx.enabled("voice")) squelch(false);
-              release();
-            },
+            over,
             () => {
               // no words came out: the code still tells the line apart
               if (sfx.enabled("voice") && !this.ended) code(line.tone, line.priority);
@@ -391,7 +494,12 @@ export class Announcer {
             }
           );
           if (!ok) code(line.tone, line.priority);
+        };
+        window.setTimeout(() => {
+          if (recorded) playRecording(line.text, over, speak);
+          else speak();
         }, SPEECH.leadMs);
+        if (recorded) len = voiceLines.ready(voiceKey(line.text))?.duration ?? len;
         this.busyUntil = startAt + len + SPEECH.overrunS;
       } else {
         how = "code";
@@ -408,6 +516,7 @@ export class Announcer {
     this.offAnnounce();
     this.offChange();
     speech.cancel();
+    stopRecording();
     this.queue.clear();
     if (active === this) active = null;
   }

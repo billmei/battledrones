@@ -786,15 +786,15 @@ export class GameScene {
       rig.zoomAround(this.clampedZoom(next), a.x, a.y);
     }
     if (this.finale) return; // the cinematic owns the camera (its pan and push-in): no keys, no momentum
-    // keyboard panning (arrows / WASD), speed in CSS px/s
+    // keyboard panning (arrow keys only: letters stay free for hotkeys), speed in CSS px/s
     const pan = (700 * delta) / 1000;
     let kx = 0;
     let ky = 0;
     const k = this.keys;
-    if (k.has("ArrowLeft") || k.has("KeyA")) kx -= 1;
-    if (k.has("ArrowRight") || k.has("KeyD")) kx += 1;
-    if (k.has("ArrowUp") || k.has("KeyW")) ky -= 1;
-    if (k.has("ArrowDown") || k.has("KeyS")) ky += 1;
+    if (k.has("ArrowLeft")) kx -= 1;
+    if (k.has("ArrowRight")) kx += 1;
+    if (k.has("ArrowUp")) ky -= 1;
+    if (k.has("ArrowDown")) ky += 1;
     if (kx !== 0 || ky !== 0) {
       this.cine?.hold();
       rig.pan(-kx * pan, -ky * pan);
@@ -851,6 +851,10 @@ export class GameScene {
       }
     }
     this.ctrl.prune();
+    // an armed attack-move: crosshair cursor, until it's spent (or nothing selected could go)
+    if (this.ctrl.attackArmed && !this.ctrl.canAttackMove()) this.ctrl.attackArmed = false;
+    const cursor = this.ctrl.attackArmed ? "crosshair" : "";
+    if (this.stage.canvas.style.cursor !== cursor) this.stage.canvas.style.cursor = cursor;
     this.feed?.frame(delta);
     const alpha = frozen ? 1 : this.acc / TICK_MS;
     this.finale?.update(delta);
@@ -1386,8 +1390,10 @@ export class GameScene {
       g.fillStyle(mk.col, 0.9).fillCircle(mk.x, mk.y, 2.5 * px);
     }
 
-    const sb = this.ctrl.selectedBuilding !== null ? w.buildings.get(this.ctrl.selectedBuilding) : null;
-    if (sb) {
+    // (a double-clicked kind: each of them outlined, with its rally point)
+    for (const id of this.ctrl.selectedBuildingIds()) {
+      const sb = w.buildings.get(id);
+      if (!sb) continue;
       const size = BUILDINGS[sb.kind].size;
       g.lineStyle(2.5, 0x7ef29b, 1).strokeRect(sb.tx + 0.03, sb.ty + 0.03, size - 0.06, size - 0.06);
       const st = BUILDINGS[sb.kind];
@@ -1600,11 +1606,16 @@ export class GameScene {
         if (this.place.tap(sx, sy, type, shift)) return; // placing: move the ghost / build (Shift: and lay another)
         const p = this.worldAt(sx, sy);
         if (this.powerUi?.tapWorld(p.x, p.y)) return; // an armed calldown fires here
-        this.ctrl.tapWorld(p.x, p.y, this.pick(sx, sy), shift);
+        // a mouse's left click only selects (orders are the right button's, or A then click);
+        // a tap on a touch screen, with no right button, selects and orders
+        if (type === "mouse") this.ctrl.clickWorld(p.x, p.y, this.pick(sx, sy), shift);
+        else this.ctrl.tapWorld(p.x, p.y, this.pick(sx, sy), shift);
       },
       onDoubleTap: (sx, sy) => {
         if (this.place.tap(sx, sy)) return; // 2nd tap lands on the ghost it just moved: build
         const hit = this.pick(sx, sy);
+        // a building: every one of its kind, to set them all one rally point
+        if (hit.kind === "ownBuilding" && !this.ctrl.spectator && !shift) return this.ctrl.selectBuildingKind(hit.id);
         if (hit.kind !== "ownUnit") return;
         if (shift) return this.ctrl.toggleUnit(hit.id); // quick Shift+clicks each toggle a unit
         const kind = this.world.units.get(hit.id)?.kind;
@@ -1674,6 +1685,10 @@ export class GameScene {
         if (this.powerUi?.targeting) return this.powerUi.cancel(); // right-click disarms a calldown
         if (this.ctrl.placing) {
           this.ctrl.placing = null; // right-click cancels placement
+          return;
+        }
+        if (this.ctrl.attackArmed) {
+          this.ctrl.attackArmed = false; // right-click disarms an attack-move (A)
           return;
         }
         const p = this.worldAt(sx, sy);
@@ -1775,12 +1790,17 @@ export class GameScene {
     };
     const keydown = (e: KeyboardEvent) => {
       if (typing(e)) return;
-      if (/^Arrow/.test(e.code) || ["KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) {
+      // A with units selected arms an attack-move (the next left click on the map)
+      if (e.code === "KeyA" && !e.ctrlKey && !e.metaKey && !this.finale && this.ctrl.canAttackMove()) {
+        if (!e.repeat) this.ctrl.attackArmed = true;
+        return;
+      }
+      if (/^Arrow/.test(e.code)) {
         if (!e.ctrlKey && !e.metaKey) {
           this.keys.add(e.code);
           this.cine?.hold();
         }
-        if (/^Arrow/.test(e.code)) e.preventDefault();
+        e.preventDefault();
       }
       if (e.key === "Escape") {
         this.powerUi?.cancel();

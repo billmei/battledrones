@@ -424,8 +424,19 @@ export class Controller {
   selectedBuilding: number | null = null;
   /** When set, taps place this building instead of commanding. */
   placing: BuildingKind | null = null;
-  /** Next ground tap issues a plain move (retreat) instead of attack-move. */
-  forceMove = false;
+  /**
+   * Armed attack-move (the A key, or the ⚔ Attack chip): the next ground order
+   * is an attack-move, fighting everything met on the way, instead of a plain
+   * move. Spent by that order; a new selection disarms it.
+   */
+  attackArmed = false;
+  /**
+   * Buildings picked together (a double-click on one selects every building
+   * of its kind), `anchor` being the one selectedBuilding shows: a rally
+   * point set then goes to all of them. Only counts while selectedBuilding
+   * is still that anchor.
+   */
+  private buildingGroup: { anchor: number; ids: number[] } | null = null;
   /** Debug: render fog of war (display-only — the sim always keeps fog). */
   showFog = true;
   /** Spectator (AI vs AI): taps may inspect but never command. */
@@ -585,16 +596,61 @@ export class Controller {
   selectUnits(ids: number[]): void {
     this.selectedUnits = new Set(ids);
     this.selectedBuilding = null;
-    this.forceMove = false;
+    this.attackArmed = false;
   }
 
   clearSelection(): void {
     this.selectedUnits.clear();
     this.selectedBuilding = null;
-    this.forceMove = false;
+    this.attackArmed = false;
   }
 
-  /** Shift+drag: add the boxed units to the selection (a building selected gives way; an armed Move only survives). */
+  /**
+   * Has the selection anything an attack-move sends (the A key, the ⚔ Attack
+   * chip)? Unarmed Condors, harvesters, lifts and anchored Goliaths have no
+   * fights to pick on the way.
+   */
+  canAttackMove(): boolean {
+    if (this.spectator || this.selectedUnits.size === 0) return false;
+    const lifting = this.liftMembers();
+    return this.selectedOwn().some((u) => !isTransport(u.kind) && u.kind !== "harvester" && !lifting.has(u.id) && !isRooted(u));
+  }
+
+  /** Select one of our buildings on its own. */
+  selectBuilding(id: number): void {
+    this.selectedUnits.clear();
+    this.selectedBuilding = id;
+    this.buildingGroup = null;
+    this.attackArmed = false;
+  }
+
+  /**
+   * Double-click on one of our buildings: every building of its kind is
+   * selected (those being sold aside), `id` the one the HUD shows. A rally
+   * point set now goes to all of them.
+   */
+  selectBuildingKind(id: number): void {
+    const b = this.world.buildings.get(id);
+    if (!b || b.faction !== PLAYER) return;
+    const a = this.ahead();
+    const ids = [...this.world.buildings.values()]
+      .filter((o) => o.faction === PLAYER && o.kind === b.kind && !a.sold(o.id))
+      .map((o) => o.id);
+    this.selectBuilding(id);
+    if (ids.length > 1) this.buildingGroup = { anchor: id, ids };
+  }
+
+  /** The selected buildings: the one selectedBuilding names, and those picked with it by a double-click. */
+  selectedBuildingIds(): number[] {
+    const id = this.selectedBuilding;
+    if (id === null) return [];
+    const g = this.buildingGroup;
+    if (!g || g.anchor !== id) return [id];
+    const a = this.ahead();
+    return g.ids.filter((b) => this.world.buildings.has(b) && !a.sold(b));
+  }
+
+  /** Shift+drag: add the boxed units to the selection (a building selected gives way; an armed attack-move survives). */
   addUnits(ids: number[]): void {
     this.selectedBuilding = null;
     if (ids.every((id) => this.selectedUnits.has(id))) return; // nothing new: quiet
@@ -709,7 +765,35 @@ export class Controller {
     return true;
   }
 
-  /** Player tapped world position (wx, wy in tile units); `toggle` (Shift) adds or removes a tapped unit. */
+  /**
+   * A left click with the mouse at (wx, wy): it selects, it never orders.
+   * Our own unit is selected (Shift adds or takes it out), our own building
+   * too, the ground or an enemy clears the selection. Only a placement
+   * ghost builds, and an armed attack-move (A, then click) goes where it's
+   * clicked: the ground or one of ours attack-moves there, an enemy is
+   * attacked. Orders are the right button's (tapWorld).
+   */
+  clickWorld(wx: number, wy: number, hit: TapHit, toggle = false): void {
+    if (this.spectator || this.placing) return this.tapWorld(wx, wy, hit, toggle);
+    this.lastFeedback = null;
+    if (this.attackArmed && this.selectedUnits.size > 0) {
+      // (attack-move onto our own: just the place)
+      if (hit.kind === "ownUnit" || hit.kind === "ownBuilding") hit = { kind: "ground" };
+      return this.tapWorld(wx, wy, hit);
+    }
+    if (hit.kind === "ownBuilding" && this.ahead().sold(hit.id)) hit = { kind: "ground" };
+    if (hit.kind === "ownUnit") {
+      if (toggle) this.toggleUnit(hit.id);
+      else this.selectUnits([hit.id]);
+    } else if (hit.kind === "ownBuilding") this.selectBuilding(hit.id);
+    else if (!toggle) this.clearSelection();
+  }
+
+  /**
+   * Player tapped world position (wx, wy in tile units): a tap on a touch
+   * screen, or a right click (an order). `toggle` (Shift) adds or removes a
+   * tapped unit.
+   */
   tapWorld(wx: number, wy: number, hit: TapHit, toggle = false): void {
     const w = this.world;
     this.lastFeedback = null;
@@ -738,8 +822,7 @@ export class Controller {
     if (hit.kind === "ownBuilding") {
       // with units selected, tapping our own building just moves them there
       if (this.selectedUnits.size === 0) {
-        this.selectedUnits.clear();
-        this.selectedBuilding = hit.id;
+        this.selectBuilding(hit.id);
         return;
       }
     }
@@ -764,6 +847,7 @@ export class Controller {
         if (others.length > 0)
           this.enqueue({ type: "move", faction: PLAYER, unitIds: others, x: wx, y: wy });
         this.lastFeedback = { kind: drop.length > 0 ? "drop" : "attack", x: wx, y: wy };
+        this.attackArmed = false;
         return;
       }
       // only anchored Goliaths, and it's beyond their guns: they stay dug in (no rally point at the enemy)
@@ -805,7 +889,7 @@ export class Controller {
       if (rooted.length > 0 && ids.length === 0 && lifting.size === 0) {
         for (const id of rooted) this.enqueue({ type: "rally", faction: PLAYER, buildingId: id, x: wx, y: wy });
         this.lastFeedback = { kind: "rally", x: wx, y: wy };
-        this.forceMove = false;
+        this.attackArmed = false;
         this.rootTip("Rally point set: pack up first (G) to move the Goliath");
         return;
       }
@@ -814,7 +898,7 @@ export class Controller {
       const rest = ids.filter((id) => w.units.get(id)!.kind !== "harvester");
       const onResource =
         tx >= 0 && ty >= 0 && tx < w.width && ty < w.height && isResource(w, tileIndex(w, tx, ty));
-      const type = this.forceMove ? "move" : "attackMove";
+      const type = this.attackArmed ? "attackMove" : "move";
       if (onResource && harvesters.length > 0) {
         this.enqueue({ type: "harvest", faction: PLAYER, unitIds: harvesters, x: wx, y: wy });
         if (rest.length > 0) this.enqueue({ type, faction: PLAYER, unitIds: rest, x: wx, y: wy });
@@ -825,13 +909,14 @@ export class Controller {
         if (rest.length > 0) this.enqueue({ type, faction: PLAYER, unitIds: rest, x: wx, y: wy });
         this.lastFeedback = { kind: "move", x: wx, y: wy };
       }
-      this.forceMove = false;
+      this.attackArmed = false;
       return;
     }
     if (this.selectedBuilding !== null) {
-      const b = w.buildings.get(this.selectedBuilding);
-      if (b && isProducer(b.kind)) {
-        this.enqueue({ type: "rally", faction: PLAYER, buildingId: this.selectedBuilding, x: wx, y: wy });
+      // (a double-clicked kind: every one of them rallies there)
+      const producers = this.selectedBuildingIds().filter((id) => isProducer(w.buildings.get(id)!.kind));
+      if (producers.length > 0) {
+        for (const id of producers) this.enqueue({ type: "rally", faction: PLAYER, buildingId: id, x: wx, y: wy });
         this.lastFeedback = { kind: "rally", x: wx, y: wy };
       } else this.clearSelection();
     }
@@ -1011,8 +1096,8 @@ export class Controller {
     if (ids.length > 0) this.enqueue({ type: "unload", faction: PLAYER, unitIds: ids, x: wx, y: wy });
     const lifting = this.orderLifts(wx, wy, true);
     const rest = this.selectedOwn().filter((u) => !ids.includes(u.id) && !lifting.has(u.id) && !isRooted(u)).map((u) => u.id);
-    if (rest.length > 0) this.enqueue({ type: this.forceMove ? "move" : "attackMove", faction: PLAYER, unitIds: rest, x: wx, y: wy });
-    this.forceMove = false;
+    if (rest.length > 0) this.enqueue({ type: this.attackArmed ? "attackMove" : "move", faction: PLAYER, unitIds: rest, x: wx, y: wy });
+    this.attackArmed = false;
     this.lastFeedback = { kind: "drop", x: wx, y: wy };
     return true;
   }
@@ -1159,7 +1244,7 @@ export class Controller {
     // a Condor on its way somewhere waits for them instead (idle, it flies over to meet them)
     if (carrier.order.type === "move" || carrier.order.type === "attackMove")
       this.enqueue({ type: "stop", faction: PLAYER, unitIds: [carrier.id] });
-    this.forceMove = false;
+    this.attackArmed = false;
     this.lastFeedback = { kind: "board", x: carrier.x, y: carrier.y };
     return true;
   }

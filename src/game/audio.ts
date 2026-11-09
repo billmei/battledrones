@@ -1,6 +1,8 @@
 /**
- * Procedural sound effects: every sound is synthesised with WebAudio
- * (filtered noise bursts, oscillator sweeps) — zero audio assets to load.
+ * Sound effects: recorded samples (public/assets/sfx, made with ElevenLabs
+ * sound generation, tools/sfx) played through WebAudio, each with a
+ * procedural recipe (filtered noise bursts, oscillator sweeps) that plays
+ * instead while the recordings load, if one fails, or when there is none.
  * Voices are rate-limited per sound and capped overall so a big battle
  * stays a rumble rather than a wall of clipping noise.
  *
@@ -53,6 +55,10 @@
  *    for its FIR (guard-fir.ts): its own Nyquist is the guard.
  */
 import { guardFir, type GuardPlan } from "./guard-fir";
+import { SampleBank } from "./samples";
+
+/** The recorded sound effects (and the announcer's radio click, "radio-open" / "radio-close"). */
+export const sfxSamples = new SampleBank("assets/sfx/");
 
 export type SfxName =
   | "cannon" | "heavy" | "mg" | "flak" | "rocket" | "missile" | "laser" | "shell" | "bomb"
@@ -311,6 +317,8 @@ export class Sfx {
     }
     const e = this.engine!;
     for (const fn of this.readyFns) fn(e);
+    // the recordings are small (about 200 kB): fetch them all now
+    void sfxSamples.preload(this.ctx);
   }
 
   /**
@@ -528,7 +536,18 @@ export class Sfx {
     out.gain.value = vol;
     out.connect(this.buses.sfx);
     this.voices++;
-    const dur = RECIPES[name](ctx, out, now, this.noise!, pitch);
+    const buf = sfxSamples.ready(name);
+    let dur: number;
+    if (buf) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      // a touch of random pitch so a volley of the same shot doesn't sound like a loop
+      const rate = pitch * (BATTLE.has(name) ? 0.94 + Math.random() * 0.12 : 1);
+      src.playbackRate.value = rate;
+      src.connect(out);
+      src.start(now);
+      dur = buf.duration / rate;
+    } else dur = RECIPES[name](ctx, out, now, this.noise!, pitch);
     setTimeout(() => {
       this.voices--;
       out.disconnect();

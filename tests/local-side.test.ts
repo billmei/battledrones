@@ -188,7 +188,7 @@ describe("a red Controller", () => {
     expect(c.commitPlacement()).toBe(true);
 
     const cmds = c.drainCommands();
-    expect(cmds.map((k) => k.type)).toEqual(["attackMove", "attack", "stop", "placeBuilding"]);
+    expect(cmds.map((k) => k.type)).toEqual(["move", "attack", "stop", "placeBuilding"]);
     expect(cmds.every((k) => k.faction === "red")).toBe(true);
     // and the sim carries them out for red
     step(w, composeTick(PLAYER, cmds, []));
