@@ -6,16 +6,14 @@
  *   dominant unit's icon, a count and a health bar, and flashes red while
  *   a member is being hit.
  * - Build advisor badges: an amber ⚔ on build buttons that counter enemies
- *   you've seen (and on their tab), and an "idle" tag on the Vehicles /
- *   Infantry / Aircraft tab when a factory sits idle while you can afford
- *   its units.
+ *   you've seen, and an "idle" tag on the Vehicles / Infantry / Aircraft
+ *   section header when a factory sits idle while you can afford its units.
  * - One-time hints that teach the squad gesture, infantry, the Condor, the
  *   Goliath's anchor and the two-Condor lift.
  *
  * Rules live in ../game/squads.ts and ../game/advisor.ts (tested).
  */
-import { BUILDINGS, GOLIATH, UNITS } from "../sim/balance";
-import { buildingBlocker, unitBlocker } from "../sim/economy";
+import { GOLIATH } from "../sim/balance";
 import { canWalk } from "../sim/goliath";
 import { isInfantry, isTransport } from "../sim/infantry";
 import { canCarry } from "../sim/lift";
@@ -23,7 +21,7 @@ import type { BuildingKind, Faction, FxEvent, UnitKind, World } from "../sim/typ
 import { sfx } from "../game/audio";
 import { PLAYER, type Controller } from "../game/controller";
 import { SQUAD } from "../game/squads";
-import { ADVISOR, COUNTERS, EnemyIntel, FACTORY_TAB, IdleWatch, adviceNote, counterAdvice, type FactoryTab } from "../game/advisor";
+import { ADVISOR, EnemyIntel, IdleWatch, adviceNote, counterAdvice, type FactoryTab } from "../game/advisor";
 import { HINTS, type HintOffer } from "../game/hints";
 import { iconUrl } from "../game/side-style";
 
@@ -47,22 +45,8 @@ const BADGE_MS = 250;
 /** A squad chip's portrait, in our side's paint (red's art when we play red). */
 const icon = (kind: string) => iconUrl(kind, PLAYER);
 
-/**
- * Build-bar tab of each build option (for the tab's ⚔ dot): a unit sits on
- * its factory's tab, and the Goliath on Vehicles (the Gantry isn't one of
- * the factories the idle watch nags about, so it has no tab of its own).
- */
-const TAB_OF = (key: string): "build" | FactoryTab => {
-  if (key.startsWith("b:")) return "build";
-  const kind = key.slice(2) as UnitKind;
-  if (kind === "goliath") return "ground";
-  return FACTORY_TAB[UNITS[kind].builtAt] ?? "ground";
-};
-
-/** Build-bar tabs, as the HUD names them (src/ui/hud.ts). */
-const TABS: ("build" | FactoryTab)[] = ["build", "ground", "infantry", "air"];
-/** Defences with a counter entry: the Base tab's ⚔ while another tab is open. */
-const DEFENCES = (Object.keys(COUNTERS) as (UnitKind | BuildingKind)[]).filter((k): k is BuildingKind => k in BUILDINGS);
+/** Build-list sections that carry an "idle" tag, as the HUD names them (src/ui/hud.ts). */
+const IDLE_SECTIONS: FactoryTab[] = ["ground", "infantry", "air"];
 
 /** One-time tips offered when the selection calls for them (CommandUi.update). */
 const SELECTION_HINTS: [string, string][] = [
@@ -93,7 +77,7 @@ export class CommandUi {
   private badgeAt = -Infinity;
   /** When each build option's counter badge lit (wall ms), for the fresh pulse. */
   private litAt = new Map<string, number>();
-  private tabNotes = new Map<string, { idle: HTMLElement; ctr: HTMLElement }>();
+  private idleTags = new Map<FactoryTab, HTMLElement>();
   private hints = new Set<string>();
 
   constructor(private h: CommandHooks) {
@@ -126,14 +110,15 @@ export class CommandUi {
     this.squadsEl = squads;
     for (let i = 0; i < SQUAD.slots; i++) this.chips.push(this.makeSquad(i, squads));
 
-    for (const t of TABS) {
-      const tab = this.h.root.querySelector<HTMLElement>(`.tab[data-tab="${t}"]`);
-      if (!tab) continue;
-      const notes = document.createElement("span");
-      notes.className = "tnotes";
-      notes.innerHTML = `<span class="tidle" hidden>idle</span><span class="tctr" hidden>⚔</span>`;
-      tab.appendChild(notes);
-      this.tabNotes.set(t, { idle: notes.firstElementChild as HTMLElement, ctr: notes.lastElementChild as HTMLElement });
+    for (const t of IDLE_SECTIONS) {
+      const head = this.h.root.querySelector<HTMLElement>(`.bsh[data-tab="${t}"]`);
+      if (!head) continue;
+      const tag = document.createElement("span");
+      tag.className = "tidle";
+      tag.hidden = true;
+      tag.textContent = "idle";
+      head.appendChild(tag);
+      this.idleTags.set(t, tag);
     }
   }
 
@@ -408,40 +393,22 @@ export class CommandUi {
     }
   }
 
-  /** Counter glows on build buttons, and idle / ⚔ notes on the tabs. */
+  /** Counter glows on build buttons, and "idle" tags on the section headers. */
   private badges(now: number): void {
     const w = this.h.world;
     this.idle = this.idleWatch.update(this.simT);
-    const tabCtr: Record<"build" | FactoryTab, boolean> = { build: false, ground: false, infantry: false, air: false };
     for (const btn of this.h.root.querySelectorAll<HTMLElement>(".bb[data-key]")) {
       const key = btn.dataset.key!;
       const kind = key.slice(2) as UnitKind | BuildingKind;
-      const a = counterAdvice(w, PLAYER, this.intel, kind, this.simT);
-      const lit = a.active;
+      const lit = counterAdvice(w, PLAYER, this.intel, kind, this.simT).active;
       if (lit && !this.litAt.has(key)) this.litAt.set(key, now);
       if (!lit) this.litAt.delete(key);
       btn.classList.toggle("counter", lit);
       btn.classList.toggle("fresh", lit && now - this.litAt.get(key)! < ADVISOR.freshMs);
-      if (lit && !btn.classList.contains("locked")) tabCtr[TAB_OF(key)] = true;
     }
-    // buttons on other tabs are detached from the DOM: judge their tabs from the rules directly
-    for (const kind of Object.keys(UNITS) as UnitKind[]) {
-      const tab = TAB_OF(`u:${kind}`);
-      if (tabCtr[tab] || this.h.root.querySelector(`.bb[data-key="u:${kind}"]`)) continue;
-      if (counterAdvice(w, PLAYER, this.intel, kind, this.simT).active && !unitBlocker(w, PLAYER, kind)) tabCtr[tab] = true;
-    }
-    if (
-      !this.h.root.querySelector('.bb[data-key^="b:"]') &&
-      DEFENCES.some((k) => counterAdvice(w, PLAYER, this.intel, k, this.simT).active && !buildingBlocker(w, PLAYER, k))
-    )
-      tabCtr.build = true;
-    for (const [t, n] of this.tabNotes) {
-      const tab = n.idle.closest<HTMLElement>(".tab");
-      const current = !!tab?.classList.contains("on");
-      const idle = !current && t !== "build" && this.idle[t as FactoryTab];
-      const ctr = !current && tabCtr[t as "build" | FactoryTab];
-      if (n.idle.hidden === idle) n.idle.hidden = !idle;
-      if (n.ctr.hidden === ctr) n.ctr.hidden = !ctr;
+    for (const [t, tag] of this.idleTags) {
+      const idle = this.idle[t];
+      if (tag.hidden === idle) tag.hidden = !idle;
     }
   }
 

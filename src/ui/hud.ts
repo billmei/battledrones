@@ -137,6 +137,7 @@ type DuelAsk = "resign" | "resign-leave" | "leave";
 /** The end screen's button that copies the match's battle record. */
 const COPY_REPLAY = "📋 Copy replay JSON";
 
+/** The build list's sections, top to bottom (one scrolling list, no tabs). */
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "build", label: "Base", icon: "🏗" },
   { id: "ground", label: "Vehicles", icon: "⛓" },
@@ -154,7 +155,7 @@ const UNIT_TABS: { tab: Tab; kinds: UnitKind[] }[] = [
   { tab: "air", kinds: AIR }
 ];
 const ALL_UNITS = UNIT_TABS.flatMap((t) => t.kinds);
-/** The build-bar tab a unit's button sits on. */
+/** The build-list section a unit's button sits in. */
 const tabOf = (kind: UnitKind): Tab => UNIT_TABS.find((t) => t.kinds.includes(kind))?.tab ?? "ground";
 
 /** Counter hints for the info card, distilled from the duel matrix (tools/balance.ts). */
@@ -312,8 +313,7 @@ export function createHud(api: HudApi): Hud {
         <div class="chips" id="chips"></div>
       </div>
       <div class="buildbar">
-        <div class="tabs" id="tabs"></div>
-        <div class="grid" id="grid"></div>
+        <div class="blist" id="blist"></div>
       </div>
     </div>
     <div id="card" class="card" hidden></div>
@@ -326,8 +326,7 @@ export function createHud(api: HudApi): Hud {
   const clockEl = $("#clock");
   const chipsEl = $("#chips");
   const selEl = $("#selpanel");
-  const tabsEl = $("#tabs");
-  const gridEl = $("#grid");
+  const listEl = $("#blist");
   const cardEl = $("#card");
   const pauseEl = $("#pause");
   const endEl = $("#endscreen");
@@ -368,23 +367,27 @@ export function createHud(api: HudApi): Hud {
   const ops = w.ops ? createOpsHud($("#opspill"), root, w, { rematch: relaunch }) : null;
 
   // ---------------------------------------------------------- build bar ---
-  let tab: Tab = "build";
   const buttons = new Map<string, HTMLButtonElement>();
   /** Cached child elements of each build button (no per-frame DOM queries), and the price its label shows. */
   const parts = new Map<string, { prog: HTMLElement; lock: HTMLElement; badge: HTMLElement; cost: HTMLElement; price: number }>();
 
+  // one scrolling list: a section (header and grid of buttons) for each kind of thing you build
+  const sections = new Map<Tab, { el: HTMLElement; grid: HTMLElement; badge: HTMLElement }>();
   for (const t of TABS) {
-    const b = document.createElement("button");
-    b.className = "tab";
-    b.dataset.tab = t.id;
-    b.innerHTML = `<span class="ti">${t.icon}</span><span class="tl2">${t.label}</span><span class="tbadge" hidden></span>`;
-    b.addEventListener("click", () => {
-      sfx.play("click", 0.5);
-      tab = t.id;
-      renderGrid();
-    });
-    tabsEl.appendChild(b);
+    const el = document.createElement("section");
+    el.className = "bsec";
+    el.dataset.sec = t.id;
+    el.innerHTML = `<div class="bsh" data-tab="${t.id}"><span class="ti">${t.icon}</span><span class="tl2">${t.label}</span><span class="tbadge" hidden></span></div><div class="grid"></div>`;
+    listEl.appendChild(el);
+    sections.set(t.id, { el, grid: el.querySelector<HTMLElement>(".grid")!, badge: el.querySelector<HTMLElement>(".tbadge")! });
   }
+  /** Scroll the build list so a section's header is at the top (portrait scrolls the list, landscape the whole sidebar). */
+  const scrollToSection = (t: Tab) => {
+    const sec = sections.get(t)!.el;
+    const bar = listEl.parentElement!;
+    const scroller = listEl.scrollHeight > listEl.clientHeight + 1 ? listEl : bar;
+    scroller.scrollTop += sec.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (scroller === bar ? parseFloat(getComputedStyle(bar).paddingTop) || 0 : 0);
+  };
 
   const makeButton = (key: string, kind: string, cost: number, name: string, onTap: () => void, onInfo: () => void) => {
     const b = document.createElement("button");
@@ -471,15 +474,8 @@ export function createHud(api: HudApi): Hud {
       sfx.play("click");
     }, () => showCard(kind));
 
-  function renderGrid(): void {
-    gridEl.innerHTML = "";
-    const keys =
-      tab === "build" ? BUILDABLE.map((k) => `b:${k}`) : UNIT_TABS.find((t) => t.tab === tab)!.kinds.map((k) => `u:${k}`);
-    for (const k of keys) gridEl.appendChild(buttons.get(k)!);
-    for (const el of tabsEl.children) (el as HTMLElement).classList.toggle("on", (el as HTMLElement).dataset.tab === tab);
-    cardEl.hidden = true;
-  }
-  renderGrid();
+  for (const k of BUILDABLE) sections.get("build")!.grid.appendChild(buttons.get(`b:${k}`)!);
+  for (const t of UNIT_TABS) for (const k of t.kinds) sections.get(t.tab)!.grid.appendChild(buttons.get(`u:${k}`)!);
 
   // ------------------------------------------------------------ info card ---
   function showCard(kind: UnitKind | BuildingKind): void {
@@ -940,7 +936,7 @@ export function createHud(api: HudApi): Hud {
   }
 
   const pings: { x: number; y: number; t: number; kind?: "hit" | "inbound" }[] = [];
-  /** The anchored Goliaths selected last frame (ids), to open the Infantry tab when one turns up. */
+  /** The anchored Goliaths selected last frame (ids), to scroll to Infantry when one turns up. */
   let lastTrainers = "";
 
   // --------------------------------------------------------- top buttons ---
@@ -1200,13 +1196,10 @@ export function createHud(api: HudApi): Hud {
     renderChips(chips);
     renderSelection();
     // an anchored Goliath selected (or one selected finishing digging in): the
-    // squads it trains are on the Infantry tab
+    // squads it trains are in the Infantry section
     const trainers = ctrl.spectator ? "" : ctrl.goliathsSelected().filter((g) => g.goliath!.mode === "anchored").map((g) => g.id).join(",");
     if (trainers !== lastTrainers) {
-      if (trainers && !lastTrainers && tab !== "infantry") {
-        tab = "infantry";
-        renderGrid();
-      }
+      if (trainers && !lastTrainers) scrollToSection("infantry");
       lastTrainers = trainers;
     }
 
@@ -1260,12 +1253,10 @@ export function createHud(api: HudApi): Hud {
       prog.hidden = headProg < 0;
       if (headProg >= 0) prog.style.height = `${headProg * 100}%`;
     }
-    for (const el of tabsEl.children) {
-      const t = (el as HTMLElement).dataset.tab as Tab;
+    for (const [t, { badge }] of sections) {
       const n = t === "build" ? laid.length : tabQ[t];
-      const badge = el.querySelector<HTMLElement>(".tbadge")!;
-      badge.hidden = n === 0 || t === tab;
-      badge.textContent = String(n);
+      badge.hidden = n === 0;
+      if (badge.textContent !== String(n)) badge.textContent = String(n);
     }
 
     const now = performance.now();
@@ -1548,12 +1539,12 @@ export const HELP_HTML = `
   <h3>Ops</h3><p>A short campaign of handcrafted missions with a twist — hold a bridge, deliver scrap under air raids, decapitate a base with a strike group, fight with no income. Each has a goal pill under the clock (tap it for the objectives) and three stars: complete it, plus two harder conditions. The first three are open; every op you complete opens the next.</p>
   <h3>Career, Daily Op and mutators</h3><p>Wins, Last Stand waves and medals earn XP toward ten ranks; each map and difficulty has three stars (win, win under 8:00 — 12:00 on the Archipelago — and win without losing a building). The <b>Daily Op</b> is one seeded match a day, the same for everyone, and keeps a win streak. <b>Mutators</b> twist a skirmish's rules for both sides (no stars). Tap your rank on the menu for medals and records.</p>
   <h3>Economy</h3><p>Harvesters mine scrap piles and glowing crystals (worth more) and haul them to your HQ, a Depot or an anchored Goliath. More harvesters, more scrap. Destroyed units leave glinting <b>wrecks</b> worth 30% of their cost (a Last Stand wave's only 5%) for a minute: roll any ground unit over one to salvage it.</p>
-  <h3>Building</h3><p>Open <b>Base</b> and tap a structure: a ghost appears on a free spot near your base. Tap the map (or drag the ghost) to move it, then tap the ghost or <b>✓ Place</b> to lay its foundation. With a mouse, just click the spot (hold Shift to lay several). You pay when you lay it, and it's built right there. Lay as many as you can pay for: they go up one at a time, in the order you laid them. Select a foundation to cancel it for a full refund. Build buttons marked ⚔ counter enemies you've seen; a tab marked <b>idle</b> has a factory doing nothing.</p>
+  <h3>Building</h3><p>The build list scrolls: <b>Base</b> structures first, then Vehicles, Infantry and Aircraft. Tap a structure: a ghost appears on a free spot near your base. Tap the map (or drag the ghost) to move it, then tap the ghost or <b>✓ Place</b> to lay its foundation. With a mouse, just click the spot (hold Shift to lay several). You pay when you lay it, and it's built right there. Lay as many as you can pay for: they go up one at a time, in the order you laid them. Select a foundation to cancel it for a full refund. Build buttons marked ⚔ counter enemies you've seen; a section marked <b>idle</b> has a factory doing nothing.</p>
   <h3>Army</h3><p>Tap a unit to select it, drag-hold (long-press) to box-select, double-tap to grab all of that type on screen. With a mouse, Shift+click adds a unit to the selection or takes it out. Tap the ground to move there, tap an enemy to attack. <b>⚔ Attack</b> makes the next move an attack-move that fights everything on the way. With a mouse, left click only selects: right-click orders (move, attack, rally point), and A then left click on the ground attack-moves. Double-click a building to select every one of its kind and give them one rally point. <b>💤 Idle</b> grabs units with no orders.</p>
   <h3>Squads</h3><p>Hold a squad chip (<b>1</b>, <b>2</b>, <b>3</b>) to save the selected units into it. Tap it to select them again, double-tap to fly the camera there. It flashes red when a member is hit. Keys: 1–3 select, Ctrl+1–3 (or Shift+1–3) save.</p>
   <h3>Infantry</h3><p>You start every battle with a <b>Trooper Squad</b> by your HQ. The <b>Assembly Bay</b> trains more: <b>Troopers</b> (cheap rifles that hit air too), <b>Rocket Squads</b> (kill Mastodons and Hornets) and, with a Tech Lab, <b>Sniper Teams</b> (delete other infantry, and stay hidden in woods unless they fire or you come within ${INF.concealRadius} tiles). A squad is one unit of several robots: they fall as it takes damage, and it shoots weaker with each one lost. Squads walk through woods and rough ground at full speed, take half damage in woods and capture Uplinks twice as fast, but Mastodons crush them.</p>
   <h3>Condor</h3><p>The Airpad's dropship carries two squads over water, rock and anything else. Select squads and tap the Condor (or select the Condor and tap a squad) to load them; then <b>long-press</b> the map to fly there and drop them, or tap <b>⇣ Unload</b> (key U) to drop them where it is. Shot down over land, its squads bail out hurt; over water or rock they go down with it.</p>
-  <h3>Gantry and Goliath</h3><p>With a Fab Plant, an Airpad, a Tech Lab and an Assembly Bay standing you can build the <b>Gantry</b> (one per side, and the enemy always sees it). It builds the <b>Goliath</b>: a giant walking mech and a base on legs. Each one costs ${Math.round(GOLIATH.costStep * 100)}% more for every Goliath you already have. Select it and tap <b>⚓ Anchor</b> (key G) to dig in where it stands (${GOLIATH.anchorTime} s): anchored, harvesters unload at it, it trains squads (Infantry tab, no Assembly Bay needed; tap the map to set their rally point) and you can build within ${GOLIATH.buildRing} tiles of it, even far from base. Those <b>outposts</b> keep working after it leaves, but never extend your build range. <b>⇡ Pack up</b> (G again, ${GOLIATH.packTime} s) before it can walk. It fires mortars, an eye laser, arm cannons and machine guns, and loses them as it is hurt: mortars below ${Math.round(GOLIATH.weapons.mortars.lostBelow * 100)}%, the laser below ${Math.round(GOLIATH.weapons.laser.lostBelow * 100)}%, the cannons below ${Math.round(GOLIATH.weapons.cannons.lostBelow * 100)}% (the machine guns never). Only <b>Menders</b> repair it, and brought back up its weapons reboot. The enemy can always see it.</p>
+  <h3>Gantry and Goliath</h3><p>With a Fab Plant, an Airpad, a Tech Lab and an Assembly Bay standing you can build the <b>Gantry</b> (one per side, and the enemy always sees it). It builds the <b>Goliath</b>: a giant walking mech and a base on legs. Each one costs ${Math.round(GOLIATH.costStep * 100)}% more for every Goliath you already have. Select it and tap <b>⚓ Anchor</b> (key G) to dig in where it stands (${GOLIATH.anchorTime} s): anchored, harvesters unload at it, it trains squads (Infantry section, no Assembly Bay needed; tap the map to set their rally point) and you can build within ${GOLIATH.buildRing} tiles of it, even far from base. Those <b>outposts</b> keep working after it leaves, but never extend your build range. <b>⇡ Pack up</b> (G again, ${GOLIATH.packTime} s) before it can walk. It fires mortars, an eye laser, arm cannons and machine guns, and loses them as it is hurt: mortars below ${Math.round(GOLIATH.weapons.mortars.lostBelow * 100)}%, the laser below ${Math.round(GOLIATH.weapons.laser.lostBelow * 100)}%, the cannons below ${Math.round(GOLIATH.weapons.cannons.lostBelow * 100)}% (the machine guns never). Only <b>Menders</b> repair it, and brought back up its weapons reboot. The enemy can always see it.</p>
   <h3>Lift</h3><p>Two empty Condors can carry a walking Goliath: select both and tap it to hook on, then <b>long-press</b> where to set it down (a tap flies it there and hovers; <b>⇣ Set down</b> or U puts it down where it is). In the air it fires only its machine guns, and if either Condor is shot down it falls: hurt over land, lost over water, sea, lava or rock.</p>
   <h3>Counters</h3><p>Stingers beat Flak · Flak beats aircraft · Wasps beat tanks · Raptors hunt aircraft · Mastodons crush ground armies · Mortars and Hornets smash bases and squads · Rocket Squads beat Mastodons · Snipers beat infantry · Rocket Squads, Wasps, Lancers and Hornets bring down Goliaths. Long-press any build button for details.</p>
   <h3>Terrain</h3><p>Roads are fast, mud and woods are slow, woods give cover. Water blocks tanks — Lancers hover across, aircraft fly over everything; the open sea round the Archipelago's islands stops Lancers too. Infantry walk through woods and mud at full speed but can't cross water or rock.</p>

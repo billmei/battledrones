@@ -42,7 +42,7 @@ const target = new URL(urlArg ?? "http://localhost:8899/");
 if (side === "red") target.searchParams.set("side", "red");
 const url = target.href;
 
-const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome"].find((p) => existsSync(p));
+const exe = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "/opt/pw-browsers/chromium"].find((p) => existsSync(p));
 const browser = await chromium.launch({
   executablePath: exe,
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
@@ -97,16 +97,11 @@ await ff(60);
 const mining = await world(() => [...window.__bd.world.units.values()].some((u) => u.faction === window.__bd.player && u.kind === "harvester" && u.order.type === "harvest"));
 if (!mining) fail("starting harvester is not harvesting");
 
-// 1. construct a Fab Plant from the build bar (real tap)
+// 1. lay a Fab Plant's foundation from the build list (real tap) and let it go up
 const btn = (name) => page.locator(".bb", { has: page.locator(".nm", { hasText: new RegExp(`^${name}$`) }) });
-await btn("Fab").tap();
-await ff(2);
-const pending = await world(() => window.__bd.world.factions[window.__bd.player].pending?.kind);
-if (pending !== "fab-plant") fail(`Fab tap did not start construction (pending=${pending})`);
-await ff(110); // 10 s build
-await btn("Fab").tap(); // ready: enter placement mode
+await btn("Fab").tap(); // straight into placement: the foundation is laid first, then built in place
 const placing = await world(() => window.__bd.ctrl.placing);
-if (placing !== "fab-plant") fail(`ready Fab tap did not enter placement (placing=${placing})`);
+if (placing !== "fab-plant") fail(`Fab tap did not enter placement (placing=${placing})`);
 // tap a valid spot near the HQ, found via the sim's own rules
 const spot = await world(() => {
   const { world: w, cam, toScreen } = window.__bd;
@@ -145,8 +140,7 @@ else {
 }
 await shot("placed");
 
-// 2. queue a Stinger from the Vehicles tab
-await page.locator(".tab[data-tab=ground]").tap();
+// 2. queue a Stinger from the Vehicles section (the build list scrolls to it)
 await btn("Stinger").tap();
 await ff(3);
 const queued = await world(() => [...window.__bd.world.buildings.values()].some((b) => b.kind === "fab-plant" && b.faction === window.__bd.player && b.queue.length > 0));
@@ -201,8 +195,8 @@ if (sid) {
 }
 
 // 4. long-press a build button: the info card opens
-await page.locator(".tab[data-tab=air]").tap();
 const wasp = btn("Wasp");
+await wasp.scrollIntoViewIfNeeded();
 const box = await wasp.boundingBox();
 await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 await page.mouse.down();
