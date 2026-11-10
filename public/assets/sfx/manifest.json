@@ -45,6 +45,10 @@
   "bigExplosion.mp3",
   "bigExplosion-1.mp3"
  ],
+ "wreckDrone": "wreckDrone.mp3",
+ "wreckAir": "wreckAir.mp3",
+ "wreckLight": "wreckLight.mp3",
+ "wreckHeavy": "wreckHeavy.mp3",
  "build": "build.mp3",
  "ready": "ready.mp3",
  "click": "click.mp3",
