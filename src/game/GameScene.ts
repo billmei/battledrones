@@ -1287,7 +1287,7 @@ export class GameScene {
         if (!u || !this.unitVisible(u)) return;
         const p = this.entities.pos(u.id);
         this.fx.pulse(u.x, u.y, 0xffd66e, 1, UNITS[u.kind].domain === "air" && p ? p.h - 0.1 : undefined);
-        if (u.faction === PLAYER && !voices.answers(this.voiceHooks)) sfx.play("rank", 0.7); // else a voiced sparkle
+        if (u.faction === PLAYER) sfx.play("rank", 0.7);
         break;
       }
     }

@@ -1,9 +1,12 @@
 /**
- * Unit voices. When the player selects or orders units, they answer in
- * their class's own recorded voice (an ElevenLabs library voice per class,
- * two takes of each line: tools/voice/unit-lines.ts, public/assets/units).
+ * Unit voices. When the player selects or orders units, or a fresh unit
+ * reports in, they speak in their class's own recorded voice (an ElevenLabs
+ * library voice per class, two takes of each line: tools/voice/unit-lines.ts,
+ * public/assets/units). Troops and pilots also cry out when they die in view;
+ * a vehicle's death is its wreck sound (render/fx.ts), and a promotion is the
+ * recorded "rank" drum roll (GameScene), so neither says anything here.
  *
- * Everything else is a chirp. Every unit class has its own synthesized robot voice:
+ * Every unit class also has its own synthesized robot voice, the chirp:
  * a carrier oscillator gliding through two formant band-passes (plus a dry
  * share, so thin voices still carry on phone speakers). A unit answers when
  * it is selected or ordered, reports when it rolls off the line, sparkles
@@ -284,7 +287,7 @@ export class UnitVoices {
   }
 
   /**
-   * Do unit voices answer this viewer's unit cues (a fresh unit, a promotion)?
+   * Do unit voices answer this viewer's unit cues (a fresh unit reporting in)?
    * Spectators hear none (see events()), so they keep the plain chimes.
    */
   answers(h: Pick<VoiceHooks, "spectator">): boolean {
@@ -296,7 +299,10 @@ export class UnitVoices {
     if (!this.active) return false;
     if (this.live >= CHIRP.maxLive || !this.gate.allow(line, performance.now())) return true;
     this.stats[line]++;
-    if (USER_LINES.has(line) && this.speak(kind, line)) return true;
+    if (this.speak(kind, line)) return true;
+    // a vehicle dies without a word (its wreck sound says it all), and so does a pilot
+    // whose cry hasn't loaded yet: only a recording may speak for the dead
+    if (line === "death") return true;
     const at = this.e!.ctx.currentTime + 0.01;
     this.render(chirpPlan(kind, line, id), at, 1);
     if (echo) {
@@ -357,9 +363,6 @@ export class UnitVoices {
         if (u && u.faction === h.player) this.say(u.kind, "ready", u.id);
       } else if (ev.type === "goliathMode") {
         if (ev.mode === "anchored" && ev.faction === h.player && h.inView(ev.x, ev.y)) this.say("goliath", "ready", ev.id);
-      } else if (ev.type === "rankUp") {
-        const u = h.world.units.get(ev.id);
-        if (u && u.faction === h.player && h.inView(u.x, u.y)) this.say(u.kind, "rank", u.id);
       } else if (ev.type === "death") {
         if (ev.faction === h.player && ev.unitKind && h.inView(ev.x, ev.y)) this.say(ev.unitKind, "death", ev.id);
       } else if (ev.type === "calldownImpact" && ev.power === "droppod" && ev.faction === h.player) {
@@ -383,10 +386,15 @@ export class UnitVoices {
     if (g) this.say(g.lead.kind, "ready", g.lead.id, g.echo);
   }
 
-  /** Play the class's recorded answer, if it is loaded. */
+  /**
+   * Play the class's recorded line, if it is loaded. The player's answers cut
+   * off whatever is being said; an unprompted line (ready, a dying cry) waits
+   * its turn instead, and is dropped if someone is still talking.
+   */
   private speak(kind: UnitKind, line: VoiceLine): boolean {
     const buf = unitLines.ready(unitVoiceKey(kind, line));
     if (!buf) return false;
+    if (this.spoken && !USER_LINES.has(line)) return true;
     const { ctx, voiceIn } = this.e!;
     // (stopping fires its onended, which lets go of its gain)
     try {

@@ -62,7 +62,7 @@ export const sfxSamples = new SampleBank("assets/sfx/");
 
 export type SfxName =
   | "cannon" | "heavy" | "mg" | "flak" | "rocket" | "missile" | "laser" | "shell" | "bomb"
-  | "explosion" | "bigExplosion" | "build" | "ready" | "click" | "alert" | "heal" | "rank" | "sell"
+  | "explosion" | "bigExplosion" | "wreckDrone" | "wreckAir" | "wreckLight" | "wreckHeavy" | "build" | "ready" | "click" | "alert" | "heal" | "rank" | "sell"
   | "victory" | "defeat"
   | "kill" | "lost" | "coin"
   | "inbound"
@@ -583,7 +583,8 @@ const DUCKS: Partial<Record<SfxName, [number, number]>> = {
 };
 
 const GAP: Partial<Record<SfxName, number>> = {
-  mg: 0.07, flak: 0.06, cannon: 0.05, laser: 0.06, explosion: 0.06, heal: 0.4, alert: 3, click: 0.02,
+  mg: 0.07, flak: 0.06, cannon: 0.05, laser: 0.06, explosion: 0.06,
+  wreckDrone: 0.06, wreckAir: 0.08, wreckLight: 0.06, wreckHeavy: 0.1, heal: 0.4, alert: 3, click: 0.02,
   kill: 0.08, lost: 0.08, coin: 0.1, inbound: 2,
   deny: 0.25, squad: 0.1,
   siren: 1.6, emp: 0.25, pod: 0.3, hammer: 0.6, charge: 1, uplink: 0.2,
@@ -593,7 +594,7 @@ const GAP: Partial<Record<SfxName, number>> = {
 };
 
 /** Weapon and impact sounds: these thin out at faster game speeds (setTempo). */
-const BATTLE = new Set<SfxName>(["cannon", "heavy", "mg", "flak", "rocket", "missile", "laser", "shell", "bomb", "explosion", "bigExplosion", "heal", "rifle", "snipe", "crush", "clank", "stomp", "weld"]);
+const BATTLE = new Set<SfxName>(["cannon", "heavy", "mg", "flak", "rocket", "missile", "laser", "shell", "bomb", "explosion", "bigExplosion", "wreckDrone", "wreckAir", "wreckLight", "wreckHeavy", "heal", "rifle", "snipe", "crush", "clank", "stomp", "weld"]);
 
 /** Short feedback cues that may use the reserved voices above the battle cap. */
 const PRIORITY = new Set<SfxName>(["kill", "lost", "coin", "alert", "inbound"]);
@@ -717,6 +718,12 @@ const RECIPES: Record<SfxName, Recipe> = {
     tone(c, o, t, "sine", 90, 28, 0.45, 0.8);
     return 0.62;
   },
+  // a unit's wreck (render/fx.ts picks one by hull size): recorded; without the recording,
+  // the plain explosion
+  wreckDrone: (c, o, t, n, p) => RECIPES.explosion(c, o, t, n, p),
+  wreckAir: (c, o, t, n, p) => RECIPES.explosion(c, o, t, n, p),
+  wreckLight: (c, o, t, n, p) => RECIPES.explosion(c, o, t, n, p),
+  wreckHeavy: (c, o, t, n, p) => RECIPES.explosion(c, o, t, n, p),
   bigExplosion: (c, o, t, n) => {
     noiseBurst(c, o, t, n, 1.4, "lowpass", 1200, 1, 50);
     noiseBurst(c, o, t + 0.12, n, 1.0, "lowpass", 700, 0.7, 60);

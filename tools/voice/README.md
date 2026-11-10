@@ -50,12 +50,17 @@ Both need `ffmpeg` on the PATH.
 ## Unit voices
 
 When you select or order units they answer in their class's own voice: one
-ElevenLabs library voice per unit class, two takes each of a select, a move
-and an attack line (`unit-lines.ts`, which also names the voices). The
-promotion, "ready" and death lines are still the synthesized chirps
-(`src/game/voices.ts`), which also stand in for a recording until it loads.
+ElevenLabs library voice per unit class, two takes each of a select, a move,
+an attack and a "ready" line, plus a death cry for the classes with someone
+aboard (troops and pilots) (`unit-lines.ts`, which also names the voices).
+Each class is recorded in two batches: `<kind>.mp3` (select, move, attack) and
+`<kind>-2.mp3` (ready, death). A vehicle's death is its wreck sound instead
+(`wreckDrone`, `wreckAir`, `wreckLight`, `wreckHeavy` in `tools/sfx/sfx-list.ts`,
+picked by hull size in `src/game/render/fx.ts`), and a promotion plays the
+recorded `rank` drum roll. The synthesized chirps (`src/game/voices.ts`) only
+stand in for a recording until it loads.
 
 ```sh
-npx tsx tools/voice/build-unit-voices.ts generate /tmp/units   # <kind>.mp3, one take per class (about 2.3k credits)
+npx tsx tools/voice/build-unit-voices.ts generate /tmp/units   # <kind>.mp3 and <kind>-2.mp3 per class (about 3.5k credits)
 npx tsx tools/voice/build-unit-voices.ts split /tmp/units      # → public/assets/units
 ```

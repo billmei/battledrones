@@ -600,7 +600,8 @@ export class Fx {
       this.boom(c, ev.size >= 1 ? 0.8 + ev.size : 0.5 + ev.size * 0.85, ev.air, true, 0.9, 0.85);
       this.emit(DEBRIS, c, 7);
       this.emit(SPARKS, c, 5);
-      this.sound("explosion", at.x, at.y, 0.9);
+      // the wreck's sound fits the hull: a drone pops, an aircraft bursts, a car or a tank blows apart
+      this.sound(ev.air ? (ev.size >= 0.75 ? "wreckAir" : "wreckDrone") : ev.size >= 1 ? "wreckHeavy" : "wreckLight", at.x, at.y, 0.9);
       // the wreck falls to the ground and burns out there (over water or lava it sinks: render/wrecks.ts splashes it)
       if (ev.air && !this.liquid(at.x, at.y))
         this.v.tweens.after(300, () => this.boom({ x: at.x, y: at.y, h: this.v.terrain.surfaceAt(at.x, at.y) + 0.3 }, 0.6, false, true));

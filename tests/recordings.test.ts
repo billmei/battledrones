@@ -35,10 +35,15 @@ describe("recorded audio", () => {
     for (const v of Object.values(m)) for (const f of files(v)) expect(existsSync(`public/assets/sfx/${f}`), f).toBe(true);
   });
 
-  it("has every unit class's recorded answers: two takes of select, move and attack", () => {
+  it("has every unit class's recorded lines: two takes of select, move, attack and ready (and of a pilot's or a soldier's death cry)", () => {
     const m = manifest("units");
     for (const k of Object.keys(UNIT_VOICES) as UnitKind[])
       for (const l of SPOKEN_LINES) {
+        if (l === "death" && !UNIT_VOICES[k].lines.death) {
+          // (a vehicle dies with its wreck sound, not a word)
+          expect(m[unitVoiceKey(k, l)], `${k} ${l}`).toBeUndefined();
+          continue;
+        }
         const fs = files(m[unitVoiceKey(k, l)] ?? []);
         expect(fs.length, `${k} ${l}`).toBe(2);
         for (const f of fs) expect(existsSync(`public/assets/units/${f}`), f).toBe(true);
