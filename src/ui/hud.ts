@@ -57,6 +57,12 @@ export interface HudApi {
   uncharted?: boolean;
   /** A sound duel (an interactive feed): its pause menu and report buttons. Absent in single player and replays. */
   duel?: DuelHud;
+  /**
+   * Single player against the AI: the pause menu's Resign, confirmed first. The match is
+   * lost (the career counts it) and the page goes back to the main menu. Absent for a
+   * duel (its own Resign), a spectator and a replay.
+   */
+  resign?: () => void;
   /** The match as a battle record (GameScene.battleRecord): the end screen's Copy replay JSON. Null: none to copy. */
   battleRecord?: () => object | null;
 }
@@ -297,7 +303,7 @@ export function createHud(api: HudApi): Hud {
       <div class="opspill" id="opspill" hidden></div>
     </div>
     <div class="tl">
-      <button id="btn-menu" class="round" title="Pause (P)">❚❚</button>
+      <button id="btn-menu" class="round" title="Pause (P or Esc)">❚❚</button>
       <button id="btn-mute" class="round" title="Mute all (sound settings in the pause menu)">🔊</button>
     </div>
     <div id="toasts" class="toasts"></div>
@@ -997,7 +1003,7 @@ export function createHud(api: HudApi): Hud {
         <div id="p-sound"></div>
         <button class="cta alt" id="p-help">How to play</button>
         ${uncharted || duel ? "" : `<button class="cta alt" id="p-fog">${api.ctrl.showFog ? "Reveal map (debug)" : "Restore fog of war"}</button>`}
-        ${duel ? `<div id="p-duel" class="p-duel"></div>` : `<button class="cta alt" id="p-quit">Quit to menu</button>`}
+        ${duel ? `<div id="p-duel" class="p-duel"></div>` : api.resign ? `<div id="p-exit" class="p-duel"></div>` : `<button class="cta alt" id="p-quit">Quit to menu</button>`}
         <div id="p-helptext" class="help" hidden>${HELP_HTML}</div>
       </div>`;
     shield(pauseEl);
@@ -1013,6 +1019,27 @@ export function createHud(api: HudApi): Hud {
     });
     pauseEl.querySelector("#p-quit")?.addEventListener("click", () => fullscreen.reload());
     if (duel) renderDuelExits(duel, null);
+    else if (api.resign) renderResign(api.resign, false);
+  }
+
+  /** Single player's way out: Resign (asked first), back to the main menu with the match counted as lost. */
+  function renderResign(resign: () => void, ask: boolean): void {
+    const box = pauseEl.querySelector<HTMLElement>("#p-exit");
+    if (!box) return;
+    if (ask) {
+      box.innerHTML = `<p class="p-ask">Resign and return to the main menu? This battle counts as a defeat.</p>
+        <button class="cta alt warn" id="p-yes">🏳 Resign</button>
+        <button class="cta alt" id="p-no">Cancel</button>`;
+      box.querySelector("#p-no")!.addEventListener("click", () => renderResign(resign, false));
+      box.querySelector("#p-yes")!.addEventListener("click", () => {
+        // (the pause menu closes so the resign can land on the next tick; the scene then leaves for the menu)
+        if (api.ctrl.paused) togglePause();
+        resign();
+      });
+      return;
+    }
+    box.innerHTML = `<button class="cta alt warn" id="p-resign">🏳 Resign</button>`;
+    box.querySelector("#p-resign")!.addEventListener("click", () => renderResign(resign, true));
   }
 
   /** The duel buttons as last rendered (null: the pause menu is closed), so update() redraws them only when they change. */
@@ -1549,5 +1576,6 @@ export const HELP_HTML = `
   <h3>Counters</h3><p>Stingers beat Flak · Flak beats aircraft · Wasps beat tanks · Raptors hunt aircraft · Mastodons crush ground armies · Mortars and Hornets smash bases and squads · Rocket Squads beat Mastodons · Snipers beat infantry · Rocket Squads, Wasps, Lancers and Hornets bring down Goliaths. Long-press any build button for details.</p>
   <h3>Terrain</h3><p>Roads are fast, mud and woods are slow, woods give cover. Water blocks tanks — Lancers hover across, aircraft fly over everything; the open sea round the Archipelago's islands stops Lancers too. Infantry walk through woods and mud at full speed but can't cross water or rock.</p>
   <h3>Camera</h3><p>Drag to pan, pinch to zoom, tap the minimap to jump. Pulsing arrows at the screen edge point at fights you can't see (red: you're being hit) — tap one to fly there, or tap ⚡ to cycle through them. Watching AI vs AI, the 🎥 cinematic camera (key C) follows the action by itself; pan or zoom and it hands the camera to you, taking it back a few seconds later.</p>
-  <h3>Speed</h3><p>Tap the <b>1×</b> chip by the clock for 1.5× or 2×; hold the clock to fast-forward at 3×.</p>`;
+  <h3>Speed</h3><p>Tap the <b>1×</b> chip by the clock for 1.5× or 2×; hold the clock to fast-forward at 3×.</p>
+  <h3>Pause</h3><p>Tap <b>❚❚</b> (or press P, Space or Esc) to pause. Esc first backs out of a placement, an attack-move, a calldown or the selection. From the pause menu, <b>🏳 Resign</b> concedes the battle (it counts as a defeat) and goes back to the main menu.</p>`;
 
