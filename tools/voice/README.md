@@ -46,3 +46,16 @@ npx tsx tools/sfx/build-sfx.ts process /tmp/sfx    # → public/assets/sfx
 ```
 
 Both need `ffmpeg` on the PATH.
+
+## Unit voices
+
+When you select or order units they answer in their class's own voice: one
+ElevenLabs library voice per unit class, two takes each of a select, a move
+and an attack line (`unit-lines.ts`, which also names the voices). The
+promotion, "ready" and death lines are still the synthesized chirps
+(`src/game/voices.ts`), which also stand in for a recording until it loads.
+
+```sh
+npx tsx tools/voice/build-unit-voices.ts generate /tmp/units   # <kind>.mp3, one take per class (about 2.3k credits)
+npx tsx tools/voice/build-unit-voices.ts split /tmp/units      # → public/assets/units
+```

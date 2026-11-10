@@ -1,0 +1,194 @@
+{
+ "harvester:select": [
+  "harvester-select-1.mp3",
+  "harvester-select-2.mp3"
+ ],
+ "harvester:move": [
+  "harvester-move-1.mp3",
+  "harvester-move-2.mp3"
+ ],
+ "harvester:attack": [
+  "harvester-attack-1.mp3",
+  "harvester-attack-2.mp3"
+ ],
+ "scout:select": [
+  "scout-select-1.mp3",
+  "scout-select-2.mp3"
+ ],
+ "scout:move": [
+  "scout-move-1.mp3",
+  "scout-move-2.mp3"
+ ],
+ "scout:attack": [
+  "scout-attack-1.mp3",
+  "scout-attack-2.mp3"
+ ],
+ "stinger:select": [
+  "stinger-select-1.mp3",
+  "stinger-select-2.mp3"
+ ],
+ "stinger:move": [
+  "stinger-move-1.mp3",
+  "stinger-move-2.mp3"
+ ],
+ "stinger:attack": [
+  "stinger-attack-1.mp3",
+  "stinger-attack-2.mp3"
+ ],
+ "flak-crawler:select": [
+  "flak-crawler-select-1.mp3",
+  "flak-crawler-select-2.mp3"
+ ],
+ "flak-crawler:move": [
+  "flak-crawler-move-1.mp3",
+  "flak-crawler-move-2.mp3"
+ ],
+ "flak-crawler:attack": [
+  "flak-crawler-attack-1.mp3",
+  "flak-crawler-attack-2.mp3"
+ ],
+ "mortar:select": [
+  "mortar-select-1.mp3",
+  "mortar-select-2.mp3"
+ ],
+ "mortar:move": [
+  "mortar-move-1.mp3",
+  "mortar-move-2.mp3"
+ ],
+ "mortar:attack": [
+  "mortar-attack-1.mp3",
+  "mortar-attack-2.mp3"
+ ],
+ "mastodon:select": [
+  "mastodon-select-1.mp3",
+  "mastodon-select-2.mp3"
+ ],
+ "mastodon:move": [
+  "mastodon-move-1.mp3",
+  "mastodon-move-2.mp3"
+ ],
+ "mastodon:attack": [
+  "mastodon-attack-1.mp3",
+  "mastodon-attack-2.mp3"
+ ],
+ "lancer:select": [
+  "lancer-select-1.mp3",
+  "lancer-select-2.mp3"
+ ],
+ "lancer:move": [
+  "lancer-move-1.mp3",
+  "lancer-move-2.mp3"
+ ],
+ "lancer:attack": [
+  "lancer-attack-1.mp3",
+  "lancer-attack-2.mp3"
+ ],
+ "wasp:select": [
+  "wasp-select-1.mp3",
+  "wasp-select-2.mp3"
+ ],
+ "wasp:move": [
+  "wasp-move-1.mp3",
+  "wasp-move-2.mp3"
+ ],
+ "wasp:attack": [
+  "wasp-attack-1.mp3",
+  "wasp-attack-2.mp3"
+ ],
+ "raptor:select": [
+  "raptor-select-1.mp3",
+  "raptor-select-2.mp3"
+ ],
+ "raptor:move": [
+  "raptor-move-1.mp3",
+  "raptor-move-2.mp3"
+ ],
+ "raptor:attack": [
+  "raptor-attack-1.mp3",
+  "raptor-attack-2.mp3"
+ ],
+ "hornet:select": [
+  "hornet-select-1.mp3",
+  "hornet-select-2.mp3"
+ ],
+ "hornet:move": [
+  "hornet-move-1.mp3",
+  "hornet-move-2.mp3"
+ ],
+ "hornet:attack": [
+  "hornet-attack-1.mp3",
+  "hornet-attack-2.mp3"
+ ],
+ "mender:select": [
+  "mender-select-1.mp3",
+  "mender-select-2.mp3"
+ ],
+ "mender:move": [
+  "mender-move-1.mp3",
+  "mender-move-2.mp3"
+ ],
+ "mender:attack": [
+  "mender-attack-1.mp3",
+  "mender-attack-2.mp3"
+ ],
+ "trooper:select": [
+  "trooper-select-1.mp3",
+  "trooper-select-2.mp3"
+ ],
+ "trooper:move": [
+  "trooper-move-1.mp3",
+  "trooper-move-2.mp3"
+ ],
+ "trooper:attack": [
+  "trooper-attack-1.mp3",
+  "trooper-attack-2.mp3"
+ ],
+ "rocket-squad:select": [
+  "rocket-squad-select-1.mp3",
+  "rocket-squad-select-2.mp3"
+ ],
+ "rocket-squad:move": [
+  "rocket-squad-move-1.mp3",
+  "rocket-squad-move-2.mp3"
+ ],
+ "rocket-squad:attack": [
+  "rocket-squad-attack-1.mp3",
+  "rocket-squad-attack-2.mp3"
+ ],
+ "sniper:select": [
+  "sniper-select-1.mp3",
+  "sniper-select-2.mp3"
+ ],
+ "sniper:move": [
+  "sniper-move-1.mp3",
+  "sniper-move-2.mp3"
+ ],
+ "sniper:attack": [
+  "sniper-attack-1.mp3",
+  "sniper-attack-2.mp3"
+ ],
+ "condor:select": [
+  "condor-select-1.mp3",
+  "condor-select-2.mp3"
+ ],
+ "condor:move": [
+  "condor-move-1.mp3",
+  "condor-move-2.mp3"
+ ],
+ "condor:attack": [
+  "condor-attack-1.mp3",
+  "condor-attack-2.mp3"
+ ],
+ "goliath:select": [
+  "goliath-select-1.mp3",
+  "goliath-select-2.mp3"
+ ],
+ "goliath:move": [
+  "goliath-move-1.mp3",
+  "goliath-move-2.mp3"
+ ],
+ "goliath:attack": [
+  "goliath-attack-1.mp3",
+  "goliath-attack-2.mp3"
+ ]
+}

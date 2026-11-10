@@ -8,13 +8,13 @@
  *
  * Each batch is one take of up to 20 lines with "[long pause]" between them
  * (one voice, one read, so the lines sound alike), cut apart at its longest
- * silences. Needs ffmpeg on the PATH.
+ * silences (cut.ts). Needs ffmpeg on the PATH.
  */
-import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { announcerLines } from "./announcer-lines";
+import { cutTake } from "./cut";
 import { voiceKey } from "../../src/game/voice-lines";
 
 /** The ElevenLabs library voice: "Jerry B. - Military Commander | Gruff, Gritty Authority". */
@@ -35,29 +35,6 @@ export const prompt = (b: readonly string[]): string => b.map((s) => (/[.!?]$/.t
 /** A file name for a line: its key with dashes ("were out blue wins" → "were-out-blue-wins.mp3"). */
 export const fileOf = (line: string): string => `${voiceKey(line).replace(/ /g, "-")}.mp3`;
 
-function parse(log: string): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = [];
-  let start: number | null = null;
-  for (const m of log.matchAll(/silence_(start|end): ([\d.]+)/g)) {
-    const t = Number(m[2]);
-    if (m[1] === "start") start = t;
-    else if (start !== null) {
-      out.push({ start, end: t });
-      start = null;
-    }
-  }
-  return out;
-}
-
-function stderrOf(args: string[]): string {
-  return spawnSync("ffmpeg", args, { encoding: "utf8" }).stderr ?? "";
-}
-
-function duration(file: string): number {
-  const out = execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8" });
-  return Number(out.trim());
-}
-
 function split(dir: string): void {
   const all = batches();
   mkdirSync(OUT, { recursive: true });
@@ -71,28 +48,8 @@ function split(dir: string): void {
       missing += lines.length;
       return;
     }
-    // the gaps between lines are the n−1 longest silences (a pause inside a line is shorter)
-    const log = stderrOf(["-hide_banner", "-i", src, "-af", "silencedetect=noise=-40dB:d=0.35", "-f", "null", "-"]);
-    const gaps = parse(log)
-      .filter((s) => s.start > 0.05)
-      .sort((a, b) => b.end - b.start - (a.end - a.start))
-      .slice(0, lines.length - 1)
-      .sort((a, b) => a.start - b.start);
-    if (gaps.length !== lines.length - 1) throw new Error(`batch ${i}: ${gaps.length + 1} pieces for ${lines.length} lines`);
-    const total = duration(src);
-    lines.forEach((line, j) => {
-      const pad = 0.06;
-      const from = Math.max(0, j === 0 ? 0 : gaps[j - 1]!.end - pad);
-      const to = Math.min(total, j === lines.length - 1 ? total : gaps[j]!.start + pad);
-      const file = fileOf(line);
-      execFileSync("ffmpeg", [
-        "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-ss", from.toFixed(3), "-to", to.toFixed(3),
-        // trim what silence is left at either end, even out loudness, mono 64 kb/s
-        "-af", "silenceremove=start_periods=1:start_threshold=-45dB,areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse,loudnorm=I=-16:TP=-1.5:LRA=7",
-        "-ac", "1", "-ar", "44100", "-b:a", "64k", join(OUT, file)
-      ]);
-      manifest[voiceKey(line)] = file;
-    });
+    cutTake(src, lines.map((line) => join(OUT, fileOf(line))));
+    for (const line of lines) manifest[voiceKey(line)] = fileOf(line);
     console.log(`batch ${i}: ${lines.length} lines`);
   });
   writeFileSync(join(OUT, "manifest.json"), `${JSON.stringify(manifest, null, 1)}\n`);
